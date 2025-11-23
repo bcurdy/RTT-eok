@@ -1,0 +1,31 @@
+/* public/eok/play.css */
+
+/* Let client.css handle body and aside layout. Only style the map area. */
+
+main {
+    background-color: #202020;
+    /* RTT engine handles pan/zoom here */
+}
+
+#mapwrap {
+    /* Wrapper for the map, often used for centering/shadows */
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+}
+
+#map {
+    /* Must match the data-map-width/height in HTML */
+    width: 1778px;
+    height: 1378px;
+    
+    background-image: url("EoK_map.jpg");
+    background-size: cover;
+    background-repeat: no-repeat;
+    
+    position: relative;
+}
+
+/* Optional: Highlight the active role in the sidebar */
+.role.active {
+    border: 2px solid gold;
+    background-color: #444;
+}
