@@ -1,46 +1,91 @@
 /* public/eok/play.css */
 
-/* Let client.css handle body and aside layout. Only style the map area. */
-
+/* --- Main Layout --- */
 main {
     background-color: #202020;
-    /* RTT engine handles pan/zoom here */
 }
 
 #mapwrap {
-    /* Wrapper for the map, often used for centering/shadows */
+    position: relative;
     box-shadow: 0 0 20px rgba(0,0,0,0.5);
 }
 
 #map {
-    /* Must match the data-map-width/height in HTML */
+    /* Map Dimensions */
     width: 1778px;
     height: 1378px;
-    
     background-image: url("EoK_map.jpg");
     background-size: cover;
     background-repeat: no-repeat;
-    
     position: relative;
 }
 
-/* Optional: Highlight the active role in the sidebar */
-.role.active {
-    border: 2px solid gold;
-    background-color: #444;
+/* --- UNIT STYLE --- */
+.unit {
+    position: absolute;
+    /* Adjust these to the exact size of EoK_RU_11.PNG */
+    width: 100px;   
+    height: 100px;
+    
+    background-image: url("EoK_RU_11.PNG");
+    background-size: contain;
+    background-repeat: no-repeat;
+    
+    transform: translate(-50%, -50%);
+    z-index: 100;
+    cursor: pointer;
+    
+    /* Font settings for the numbers */
+    font-family: "Source Sans Pro", sans-serif;
+    font-size: 24px;
+    font-weight: bold;
+    color: black; /* Or white, depending on image contrast */
+    
+    /* Use grid/absolute positioning for the numbers */
 }
 
-/* --- DEBUG VISUALIZATION STYLES --- */
+/* Number Positioning */
+.unit .army {
+    position: absolute;
+    top: 10px;   /* Adjust vertical position */
+    left: 4px;  /* Adjust horizontal position */
+}
+
+.unit .unit-num {
+    position: absolute;
+    top: 10px;   /* Adjust vertical position */
+    right: 10px; /* Adjust horizontal position */
+}
+
+.unit .combat {
+    position: absolute;
+    bottom: 15px; /* Adjust vertical position */
+    left: 25px;   /* Adjust horizontal position */
+}
+
+.unit .cohesion {
+    position: absolute;
+    bottom: 15px;  /* Adjust vertical position */
+    right: 25px;   /* Adjust horizontal position */
+}
+
+/* --- UTILITY --- */
+.unit.selected {
+    filter: drop-shadow(0 0 5px gold);
+    z-index: 150;
+}
+
+/* Debug markers (Keep them for your coord work) */
 .debug-marker {
     position: absolute;
     width: 12px;
     height: 12px;
-    background-color: #ff0000; /* Rouge vif */
-    border: 2px solid #ffff00; /* Bordure jaune pour contraste */
+    background-color: #ff0000; 
+    border: 2px solid #ffff00; 
     border-radius: 50%;
-    transform: translate(-50%, -50%); /* Centre le point exactement sur la coordonnée */
+    transform: translate(-50%, -50%);
     z-index: 1000;
-    pointer-events: auto; /* Permet de voir l'infobulle au survol */
+    pointer-events: auto; 
     cursor: crosshair;
 }
 
@@ -54,7 +99,6 @@ main {
     border-radius: 3px;
     pointer-events: none;
     white-space: nowrap;
-    /* Affiche le texte un peu à droite du point */
     transform: translate(10px, -50%); 
     z-index: 1001;
 }
