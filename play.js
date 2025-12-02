@@ -1,89 +1,148 @@
 "use strict"
 
 let game = null;
+let selectedUnitId = null;
 
-// This function is optional for RTT, but if used, it must be called manually or by on_update
 function setup(state) {
+    console.log("EoK: Setup received");
     game = state;
+    render_interface();
 }
 
-// --- RTT HOOK ---
-// This is the main entry point called by client.js every time the state changes
 window.on_update = function(state, last_event) {
     game = state;
-    console.log("EoK: Update received");
-
-    // RENDER DEBUG VISUALS
-    // We call these here to ensure they appear as soon as the game loads
-    render_debug_points();
-    render_map_units(); 
+    render_interface();
 };
 
-// --- DEBUG: Render Map Points (Red Dots) ---
-function render_debug_points() {
-    const map = document.getElementById("map");
-    
-    // Safety check: ensure data exists
-    if (!map || typeof data === 'undefined' || !data.spaces) return;
-
-    // Clean up old markers to avoid duplicates on re-render
-    document.querySelectorAll('.debug-marker, .debug-label').forEach(e => e.remove());
-
-    data.spaces.forEach(space => {
-        if (space.x !== undefined && space.y !== undefined) {
-            // 1. Create the dot
-            let marker = document.createElement("div");
-            marker.className = "debug-marker";
-            marker.style.left = space.x + "px";
-            marker.style.top = space.y + "px";
-            map.appendChild(marker);
-
-            // 2. Create the label
-            let label = document.createElement("div");
-            label.className = "debug-label";
-            label.style.left = space.x + "px";
-            label.style.top = space.y + "px";
-            label.textContent = space.id;
-            map.appendChild(label);
-        }
-    });
+function render_interface() {
+    render_map_spaces();
+    render_units();
 }
 
-/* --- DEBUG: Render Units on Map (for Testing) --- */
-function render_map_units() {
+function render_map_spaces() {
+    const map = document.getElementById("map");
+    if (!map || !data.spaces) return;
+    
+    if (map.querySelectorAll('.space-hitbox').length === 0) {
+        data.spaces.forEach(space => {
+            if (space.x !== undefined) {
+                let el = document.createElement("div");
+                el.className = "space-hitbox";
+                el.style.left = space.x + "px";
+                el.style.top = space.y + "px";
+                el.title = space.name;
+                el.addEventListener("click", () => on_space_click(space.id));
+                map.appendChild(el);
+            }
+        });
+    }
+}
+
+function render_units() {
     const map = document.getElementById("map");
     
-    // Clean up existing units
+    // Find the 4 reserve boxes
+    const boxes = {
+        soviet: document.querySelector("#box_soviet .box-content"),
+        german: document.querySelector("#box_german .box-content"),
+        fort: document.querySelector("#box_fort .box-content"),
+        chit: document.querySelector("#box_chit .box-content")
+    };
+
+    if (!map || !boxes.soviet) {
+        console.error("Elements missing"); 
+        return;
+    }
+
     document.querySelectorAll('.unit').forEach(e => e.remove());
+    document.querySelectorAll('.unit-stack').forEach(e => e.remove());
 
-    if (!data.units || !data.spaces) return;
+    let mapStackCounts = {};
+    let reserveStacks = {};
 
-    console.log(`Rendering ${data.units.length} units on map...`);
-
-    data.units.forEach(u => {
-        // Find the space object in data.spaces matching the unit's assigned space ID
-        const space = data.spaces.find(s => s.id === u.space);
-
-        if (space) {
+    if (data.units) {
+        data.units.forEach(u => {
             let el = document.createElement("div");
             el.id = u.id;
-            el.className = `unit ${u.side} ${u.type}`; // Standard classes
+            el.className = `unit ${u.side} ${u.class}`;
             
-            // Inject the four numbers
-            el.innerHTML = `
-                <div class="army">${u.army}</div>
-                <div class="unit-num">${u.unit}</div>
-                <div class="combat">${u.combat}</div>
-                <div class="cohesion">${u.cohesion}</div>
-            `;
+            if (selectedUnitId === u.id) el.classList.add("selected");
 
-            // Set position based on the map space coordinates
-            el.style.left = space.x + "px";
-            el.style.top = space.y + "px";
+            el.addEventListener("click", (e) => {
+                e.stopPropagation();
+                on_unit_click(u.id);
+            });
+
+            if (u.type !== 'chit') {
+                el.innerHTML = `
+                    <div class="army">${u.army}</div>
+                    <div class="unit-num">${u.unit}</div>
+                    <div class="combat">${u.combat}</div>
+                    <div class="cohesion">${u.cohesion}</div>
+                `;
+            } else {
+                el.innerHTML = `<div class="name">${u.name}</div>`;
+            }
             
-            map.appendChild(el);
-        } else {
-            console.warn(`Unit ${u.id} has unknown space: ${u.space}`);
-        }
-    });
+            if (u.space) {
+                // --- ON MAP ---
+                const space = data.spaces.find(s => s.id === u.space);
+                if (space) {
+                    el.classList.add("on-map");
+                    let count = mapStackCounts[u.space] || 0;
+                    mapStackCounts[u.space] = count + 1;
+                    
+                    el.style.left = (space.x + (count * 5)) + "px";
+                    el.style.top = (space.y + (count * 5)) + "px";
+                    el.style.zIndex = 100 + count;
+                    
+                    map.appendChild(el);
+                }
+            } else {
+                // --- IN RESERVE ---
+                let targetBox;
+                if (u.type === "fort") targetBox = boxes.fort;
+                else if (u.type === "chit") targetBox = boxes.chit;
+                else if (u.side === "soviet") targetBox = boxes.soviet;
+                else targetBox = boxes.german;
+
+                let stackKey = u.class; 
+                if (!reserveStacks[stackKey]) {
+                    let stackEl = document.createElement("div");
+                    stackEl.className = "unit-stack";
+                    targetBox.appendChild(stackEl);
+                    reserveStacks[stackKey] = { element: stackEl, count: 0 };
+                }
+
+                let stack = reserveStacks[stackKey];
+                el.style.top = (stack.count * 2) + "px";
+                el.style.left = (stack.count * 2) + "px";
+                el.style.zIndex = stack.count;
+                
+                stack.element.appendChild(el);
+                stack.count++;
+            }
+        });
+    }
+}
+
+function on_unit_click(unitId) {
+    selectedUnitId = (selectedUnitId === unitId) ? null : unitId;
+    render_units();
+}
+
+function on_space_click(spaceId) {
+    if (!selectedUnitId) return;
+    const unit = data.units.find(u => u.id === selectedUnitId);
+    if (!unit) return;
+
+    const unitsInSpace = data.units.filter(u => u.space === spaceId);
+    if (unitsInSpace.length >= 3) {
+        alert("Stacking limit (3) reached.");
+        return;
+    }
+
+    unit.space = spaceId;
+    selectedUnitId = null;
+    render_units();
 }

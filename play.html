@@ -7,11 +7,11 @@
     
     <link rel="stylesheet" href="/fonts/fonts.css">
     <link rel="stylesheet" href="/common/client.css">
-    <link rel="stylesheet" href="play.css">
+    <link rel="stylesheet" href="play.css?v=19">
     
     <script defer src="/common/client.js"></script>
-    <script defer src="data.js"></script>
-    <script defer src="play.js"></script>
+    <script defer src="data.js?v=19"></script>
+    <script defer src="play.js?v=19"></script>
 </head>
 <body>
 
@@ -24,27 +24,53 @@
     </div>
 </header>
 
-<aside>
-    <div id="roles">
-        <div class="role" id="role_Soviet">
-            <div class="role_name">Soviet</div>
-            <div class="role_stat"></div>
-            <div class="role_user">-</div>
+<div style="display: flex; height: 100vh; width: 100%;">
+    <aside>
+        <div id="roles">
+            <div class="role" id="role_Soviet">
+                <div class="role_name">Soviet</div>
+                <div class="role_stat"></div>
+                <div class="role_user">-</div>
+            </div>
+            <div class="role" id="role_German">
+                <div class="role_name">German</div>
+                <div class="role_stat"></div>
+                <div class="role_user">-</div>
+            </div>
         </div>
-        <div class="role" id="role_German">
-            <div class="role_name">German</div>
-            <div class="role_stat"></div>
-            <div class="role_user">-</div>
-        </div>
-    </div>
-    <div id="log"></div>
-</aside>
+        <div id="log"></div>
+    </aside>
 
-<main data-map-width="1778" data-map-height="1378">
-    <div id="mapwrap">
-        <div id="map"></div>
-    </div>
-</main>
+    <main data-map-width="1778" data-map-height="1800">
+        
+        <div id="game_board">
+            
+            <div id="board_wrap">
+                <div id="map"></div>
+            </div>
+
+            <div id="reserves">
+                <div id="box_soviet" class="reserve-box">
+                    <div class="box-header">SOVIET</div>
+                    <div class="box-content"></div>
+                </div>
+                <div id="box_german" class="reserve-box">
+                    <div class="box-header">GERMAN</div>
+                    <div class="box-content"></div>
+                </div>
+                <div id="box_fort" class="reserve-box">
+                    <div class="box-header">FORTS</div>
+                    <div class="box-content"></div>
+                </div>
+                <div id="box_chit" class="reserve-box">
+                    <div class="box-header">CHITS</div>
+                    <div class="box-content"></div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+</div>
 
 <footer id="status"></footer>
 

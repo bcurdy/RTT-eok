@@ -64,19 +64,41 @@ data.spaces = [
 // --- UNIT GENERATION ---
 data.units = [];
 
-// We specifically add 8 units for the 11th Army
-// Each will be placed on a space corresponding to its unit number for this demo.
-for (let i = 1; i <= 8; i++) {
-    data.units.push({
-        id: `sov_11_${i}`,
-        side: "soviet",
-        type: "infantry",
-        army: "11",       // Left number
-        unit: i,          // Right number
-        combat: 4,        // Bottom-left number
-        cohesion: 4,      // Bottom-right number
-        space: String(i)  // Place on map space "1", "2", etc.
-    });
+function add_unit(count, side, type, name, combat, cohesion, className) {
+    for (let i = 1; i <= count; i++) {
+        data.units.push({
+            id: `${side}_${className}_${i}`,
+            side: side,
+            type: type,
+            class: className,
+            army: get_army_number(name),
+            unit: i,
+            combat: combat,
+            cohesion: cohesion,
+            name: name,
+            space: null // Reserve
+        });
+    }
 }
+
+function get_army_number(name) {
+    let match = name.match(/\d+/);
+    return match ? match[0] : "";
+}
+
+add_unit(9, "soviet", "infantry", "39th Army", 4, 4, "sov_39");
+add_unit(9, "soviet", "infantry", "43rd Army", 4, 4, "sov_43");
+add_unit(9, "soviet", "infantry", "50th Army", 4, 4, "sov_50");
+add_unit(9, "soviet", "infantry", "11th Gds",  4, 4, "sov_11");
+
+add_unit(4, "german", "infantry", "56th Inf",  4, 3, "ger_56");
+add_unit(4, "german", "infantry", "62nd Inf",  4, 3, "ger_62");
+add_unit(4, "german", "infantry", "69th Inf",  4, 3, "ger_69");
+add_unit(4, "german", "infantry", "367th Inf", 4, 3, "ger_367");
+add_unit(4, "german", "infantry", "561st Inf", 4, 3, "ger_561");
+add_unit(3, "german", "armor",    "5th Pz",    3, 2, "ger_pz5");
+
+add_unit(15, "neutral", "fort",   "Fort",      0, 4, "fort");
+add_unit(7, "neutral", "chit",    "Chit",      0, 0, "chit");
 
 if (typeof module !== 'undefined') module.exports = data;
