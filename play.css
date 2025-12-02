@@ -168,3 +168,8 @@ main {
     border: 2px solid white;
     background-color: rgba(255, 255, 255, 0.2);
 }
+
+/* Hide unit number for forts if it exists */
+.unit.fort .unit-num {
+    display: none;
+}

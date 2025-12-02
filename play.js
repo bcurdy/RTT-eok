@@ -30,7 +30,7 @@ function render_map_spaces() {
                 el.className = "space-hitbox";
                 el.style.left = space.x + "px";
                 el.style.top = space.y + "px";
-                el.title = space.name;
+                el.title = `${space.name} (${space.id})`;
                 el.addEventListener("click", () => on_space_click(space.id));
                 map.appendChild(el);
             }
@@ -40,8 +40,6 @@ function render_map_spaces() {
 
 function render_units() {
     const map = document.getElementById("map");
-    
-    // Find the 4 reserve boxes
     const boxes = {
         soviet: document.querySelector("#box_soviet .box-content"),
         german: document.querySelector("#box_german .box-content"),
@@ -49,10 +47,7 @@ function render_units() {
         chit: document.querySelector("#box_chit .box-content")
     };
 
-    if (!map || !boxes.soviet) {
-        console.error("Elements missing"); 
-        return;
-    }
+    if (!map || !boxes.soviet) return;
 
     document.querySelectorAll('.unit').forEach(e => e.remove());
     document.querySelectorAll('.unit-stack').forEach(e => e.remove());
@@ -68,15 +63,18 @@ function render_units() {
             
             if (selectedUnitId === u.id) el.classList.add("selected");
 
+            // Always bind click, even for forts (so they can be targets)
             el.addEventListener("click", (e) => {
                 e.stopPropagation();
                 on_unit_click(u.id);
             });
 
-            if (u.type !== 'chit') {
+            if (u.type !== 'chit' && u.type !== 'fort') {
+                let unitNumHtml = (u.unit !== null) ? `<div class="unit-num">${u.unit}</div>` : '';
+                
                 el.innerHTML = `
                     <div class="army">${u.army}</div>
-                    <div class="unit-num">${u.unit}</div>
+                    ${unitNumHtml}
                     <div class="combat">${u.combat}</div>
                     <div class="cohesion">${u.cohesion}</div>
                 `;
@@ -85,21 +83,19 @@ function render_units() {
             }
             
             if (u.space) {
-                // --- ON MAP ---
+                // ON MAP
                 const space = data.spaces.find(s => s.id === u.space);
                 if (space) {
                     el.classList.add("on-map");
                     let count = mapStackCounts[u.space] || 0;
                     mapStackCounts[u.space] = count + 1;
-                    
                     el.style.left = (space.x + (count * 5)) + "px";
                     el.style.top = (space.y + (count * 5)) + "px";
                     el.style.zIndex = 100 + count;
-                    
                     map.appendChild(el);
                 }
             } else {
-                // --- IN RESERVE ---
+                // IN RESERVE
                 let targetBox;
                 if (u.type === "fort") targetBox = boxes.fort;
                 else if (u.type === "chit") targetBox = boxes.chit;
@@ -126,22 +122,108 @@ function render_units() {
     }
 }
 
-function on_unit_click(unitId) {
-    selectedUnitId = (selectedUnitId === unitId) ? null : unitId;
+// --- CORE LOGIC ---
+
+function on_unit_click(clickedUnitId) {
+    const clickedUnit = data.units.find(u => u.id === clickedUnitId);
+    if (!clickedUnit) return;
+
+    // CASE 1: We already have a unit selected
+    if (selectedUnitId) {
+        // If clicking the same unit, deselect
+        if (selectedUnitId === clickedUnitId) {
+            selectedUnitId = null;
+            render_units();
+            return;
+        }
+
+        // If the clicked unit is ON THE MAP, treat this as a move to its space
+        if (clickedUnit.space) {
+            attempt_move_to_space(clickedUnit.space);
+            return;
+        }
+
+        // Otherwise, change selection to the new unit (unless it's a fort/chit which can't move)
+        if (clickedUnit.type !== 'fort' && clickedUnit.type !== 'chit') {
+            selectedUnitId = clickedUnitId;
+            render_units();
+        }
+        return;
+    }
+
+    // CASE 2: No unit selected yet
+    // Forts and Chits cannot be selected/moved
+    if (clickedUnit.type === 'fort' || clickedUnit.type === 'chit') {
+        return; 
+    }
+    
+    // Select the unit
+    selectedUnitId = clickedUnitId;
     render_units();
 }
 
 function on_space_click(spaceId) {
-    if (!selectedUnitId) return;
+    if (selectedUnitId) {
+        attempt_move_to_space(spaceId);
+    }
+}
+
+function attempt_move_to_space(spaceId) {
     const unit = data.units.find(u => u.id === selectedUnitId);
     if (!unit) return;
 
+    const spaceNum = parseInt(spaceId);
     const unitsInSpace = data.units.filter(u => u.space === spaceId);
-    if (unitsInSpace.length >= 3) {
-        alert("Stacking limit (3) reached.");
+
+    // --- RULE CHECKING ---
+
+    // 1. Stacking Limit
+    // Count units, ignoring forts
+    let stackingCount = unitsInSpace.filter(u => u.type !== 'fort').length;
+    if (stackingCount >= 3) {
+        alert("Stacking limit (3 units) reached. Forts do not count.");
         return;
     }
 
+    // 2. German Setup Rules
+    // Allowed: 1-4, 20, 24-50
+    if (unit.side === "german") {
+        let allowed = false;
+        if (spaceNum >= 1 && spaceNum <= 4) allowed = true;
+        else if (spaceNum === 20) allowed = true;
+        else if (spaceNum >= 24 && spaceNum <= 50) allowed = true;
+
+        if (!allowed) {
+            alert("Invalid German setup location. Allowed: 1-4, 20, 24-50.");
+            return;
+        }
+    }
+
+    // 3. Soviet Setup Rules
+    // Allowed: 2-24
+    if (unit.side === "soviet") {
+        if (spaceNum < 2 || spaceNum > 24) {
+            alert("Invalid Soviet setup location. Allowed: 2-24.");
+            return;
+        }
+
+        // Check for German occupation
+        let hasGerman = unitsInSpace.some(u => u.side === "german");
+        if (hasGerman) {
+            alert("Cannot place Soviet unit in a space occupied by Germans.");
+            return;
+        }
+
+        // Check for Army Homogeneity
+        // "39th Army may not stack with units belonging to any other Russian Army"
+        let differentArmy = unitsInSpace.find(u => u.side === "soviet" && u.army !== unit.army);
+        if (differentArmy) {
+            alert(`Cannot mix armies. Space contains ${differentArmy.army}th Army.`);
+            return;
+        }
+    }
+
+    // --- EXECUTE MOVE ---
     unit.space = spaceId;
     selectedUnitId = null;
     render_units();
