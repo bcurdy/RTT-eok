@@ -18,14 +18,10 @@ exports.setup = function (seed, scenario, options) {
         pieces: {}, 
     };
 
+    // Initialize pieces based on data.js definition
     data.units.forEach(u => {
-        game.pieces[u.id] = null;
-    });
-
-    data.units.forEach(u => {
-        if (u.type === 'fort' && u.space) {
-            game.pieces[u.id] = u.space;
-        }
+        // CHANGED: If data has a space (Forts, Chits), use it. Otherwise null (Reserve).
+        game.pieces[u.id] = u.space || null;
     });
 
     return game;
@@ -51,7 +47,6 @@ exports.view = function(state, role) {
         return list;
     }
 
-    // Helper pour lister les unités "sélectionnables" (en réserve)
     function list_selectable_units(side) {
         let list = [];
         data.units.forEach(u => {
@@ -69,6 +64,9 @@ exports.view = function(state, role) {
 
         data.spaces.forEach(space => {
             let s = parseInt(space.id);
+            // Skip non-numeric spaces (like tracks) for unit placement
+            if (isNaN(s)) return;
+
             let unitsInSpace = data.units.filter(u => current_pieces[u.id] === space.id);
             let count = unitsInSpace.filter(u => u.type !== 'fort').length;
 
@@ -96,32 +94,29 @@ exports.view = function(state, role) {
         return list;
     }
 
-    // --- GESTION DU BOUTON UNDO (Grisé ou Actif) ---
-    // RTT affiche le bouton si la clé existe. Si valeur 0 => Disabled.
+    // Undo Button
     if (state.undo && state.undo.length > 0) {
         view.actions.undo = 1; 
     } else {
-        view.actions.undo = 0; // Grisé
+        view.actions.undo = 0; 
     }
 
-    // --- LOGIQUE SETUP ---
     if (state.state === "setup_german") {
         if (role === "German") {
             let unplaced = get_unplaced_units("german");
             
-            // Bouton End Setup (Grisé tant qu'il reste des unités)
             if (unplaced.length === 0) {
                 view.prompt = "All units placed. End Setup to continue.";
-                view.actions.end_setup = 1; // Actif
+                view.actions.end_setup = 1; 
             } else {
                 view.prompt = `German Setup: ${unplaced.length} units remaining.`;
-                view.actions.end_setup = 0; // Grisé
+                view.actions.end_setup = 0; 
             }
 
             if (state.selected) {
                 view.prompt = "Select destination.";
                 view.actions.place = list_valid_spaces(state.selected);
-                view.actions.deselect = 1; 
+                // No Deselect button needed (handled by Undo or clicking self)
             } else {
                 view.actions.select = list_selectable_units("german");
             }
@@ -144,7 +139,6 @@ exports.view = function(state, role) {
             if (state.selected) {
                 view.prompt = "Select destination.";
                 view.actions.place = list_valid_spaces(state.selected);
-                view.actions.deselect = 1;
             } else {
                 view.actions.select = list_selectable_units("soviet");
             }
@@ -164,7 +158,6 @@ exports.action = function (state, role, action, args) {
 
     if (action === "select") {
         let unit = data.units.find(u => u.id === args);
-        // Security check
         if (unit.side.toLowerCase() !== role.toLowerCase()) return game; 
         game.selected = args;
     }
@@ -177,9 +170,7 @@ exports.action = function (state, role, action, args) {
         let spaceId = args;
         if (!game.selected) return game;
 
-        // SAUVEGARDE UNDO (Deep Copy pieces)
         game.undo.push(JSON.parse(JSON.stringify(game.pieces)));
-
         game.pieces[game.selected] = spaceId;
         game.selected = null;
     }
@@ -192,8 +183,6 @@ exports.action = function (state, role, action, args) {
     }
 
     if (action === "end_setup") {
-        // On vérifie si on a le droit de finir (par sécurité)
-        // Mais l'UI gère le grisé.
         game.selected = null;
         game.undo = [];
         

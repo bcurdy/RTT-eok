@@ -7,6 +7,17 @@ data.roles = [ "Soviet", "German" ];
 
 // Map
 data.spaces = [
+// --- TRACKS & BOXES (Top Left) ---
+    { id: "track_land",      x: 106, y: 124, name: "Land Stance" },
+    { id: "track_naval",     x: 106, y: 244, name: "Naval Stance" },
+    { id: "track_ger_ship1", x: 224, y: 124, name: "German Shipping 1" },
+    { id: "track_ger_ship2", x: 224, y: 244, name: "German Shipping 2" },
+    { id: "track_ger_navy1", x: 342, y: 124, name: "German Navy 1" },
+    { id: "track_ger_navy2", x: 342, y: 244, name: "German Navy 2" },
+    { id: "track_sov_act1",  x: 460, y: 124, name: "Russian Activation 1" },
+    { id: "track_sov_act2",  x: 460, y: 244, name: "Russian Activation 2" },
+
+// --- Points ---
     { id: "1", x: 610, y: 723, name: "1" },
     { id: "2", x: 390, y: 695, name: "2" },
     { id: "3", x: 515, y: 594, name: "3" },
