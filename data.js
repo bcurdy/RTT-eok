@@ -72,10 +72,16 @@ data.spaces = [
     { id: "52", x: 1059, y: 813, name: "52" }
 ];
 
-// --- UNIT DEFINITIONS ---
+// ---  Fortification spaces list ---
+data.fortification_spaces = [
+    25, 26, 27, 28, 29, 30, 31, 32, 
+    42, 43, 44, 45, 46, 47, 
+    50
+];
+
+// --- UNIT GENERATION ---
 data.units = [];
 
-// Helper to add army units (Reserve)
 function add_unit(count, side, type, name, combat, cohesion, className) {
     for (let i = 1; i <= count; i++) {
         data.units.push({
@@ -93,7 +99,6 @@ function add_unit(count, side, type, name, combat, cohesion, className) {
     }
 }
 
-// Helper to add Pre-Placed Forts (Fixed on map)
 function add_fort(spaceId) {
     data.units.push({
         id: `fort_${spaceId}`,
@@ -101,11 +106,11 @@ function add_fort(spaceId) {
         type: "fort",
         class: "fort",
         army: "", 
-        unit: null, // No unit number for forts
+        unit: null, 
         combat: 0,
         cohesion: 4,
         name: "Fort",
-        space: String(spaceId) // Pre-placed on map
+        space: String(spaceId) 
     });
 }
 
@@ -114,11 +119,20 @@ function get_army_number(name) {
     return match ? match[0] : "";
 }
 
-// --- ARMIES (In Reserve) ---
-add_unit(9, "soviet", "infantry", "39th Army", 4, 4, "sov_39");
-add_unit(9, "soviet", "infantry", "43rd Army", 4, 4, "sov_43");
-add_unit(9, "soviet", "infantry", "50th Army", 4, 4, "sov_50");
-add_unit(9, "soviet", "infantry", "11th Gds",  4, 4, "sov_11");
+// --- GERMAN FORCES ---
+// Stance Marker (Special Unit for German Player)
+data.units.push({
+    id: "marker_stance",
+    side: "german",   // Owned by German player so they can move it
+    type: "chit",     // Visual style
+    class: "chit",
+    name: "Stance",
+    combat: 0,
+    cohesion: 0,
+    army: "",
+    unit: null,
+    space: null       // Starts in reserve
+});
 
 add_unit(4, "german", "infantry", "56th Inf",  4, 3, "ger_56");
 add_unit(4, "german", "infantry", "62nd Inf",  4, 3, "ger_62");
@@ -127,15 +141,19 @@ add_unit(4, "german", "infantry", "367th Inf", 4, 3, "ger_367");
 add_unit(4, "german", "infantry", "561st Inf", 4, 3, "ger_561");
 add_unit(3, "german", "armor",    "5th Pz",    3, 2, "ger_pz5");
 
+// --- SOVIET FORCES ---
+add_unit(9, "soviet", "infantry", "39th Army", 4, 4, "sov_39");
+add_unit(9, "soviet", "infantry", "43rd Army", 4, 4, "sov_43");
+add_unit(9, "soviet", "infantry", "50th Army", 4, 4, "sov_50");
+add_unit(9, "soviet", "infantry", "11th Gds",  4, 4, "sov_11");
+
 // --- MARKERS ---
+// 7 Generic Chits
 add_unit(7, "neutral", "chit",    "Chit",      0, 0, "chit");
 
 // --- PRE-PLACED FORTS ---
-// Spaces 25-32
 const forts1 = [25, 26, 27, 28, 29, 30, 31, 32];
 forts1.forEach(id => add_fort(id));
-
-// Spaces 42-47 and 50
 const forts2 = [42, 43, 44, 45, 46, 47, 50];
 forts2.forEach(id => add_fort(id));
 

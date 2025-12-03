@@ -1,10 +1,7 @@
 "use strict"
 
-// Global variables
 let game = null;
 let selectedUnitId = null;
-
-// --- RTT HOOKS ---
 
 function setup(state) {
     console.log("EoK: Setup received");
@@ -14,18 +11,13 @@ function setup(state) {
 
 function on_update(state, last_event) {
     game = state;
-    
-    // SYNC: Trust the server's selection state
     if (window.view && window.view.selected) {
         selectedUnitId = window.view.selected;
     } else {
         selectedUnitId = null;
     }
-
     render_interface();
 }
-
-// --- RENDER LOGIC ---
 
 function render_interface() {
     if (!window.view) return;
@@ -33,18 +25,32 @@ function render_interface() {
     render_map_spaces();
     render_units();
     
-    // TOOLBAR BUTTONS
-    // We check hasOwnProperty to show the button even if value is 0 (disabled)
-    if (window.view.actions && window.view.actions.hasOwnProperty('end_setup')) {
+    // UPDATE SCORE
+    if (window.view.cef !== undefined) {
+        let el = document.getElementById("german_cef");
+        if (el) el.textContent = "CEF: " + window.view.cef;
+    }
+
+    // BUTTONS
+    if (window.view.actions && window.view.actions.end_setup) {
         action_button("end_setup", "End Setup");
     }
-
-    if (window.view.actions && window.view.actions.hasOwnProperty('undo')) {
+    if (window.view.actions && window.view.actions.undo) {
         action_button("undo", "Undo");
     }
-
-    if (window.view.actions && window.view.actions.deselect) {
-        action_button("deselect", "Cancel Selection");
+    // REMOVED: Cancel Selection Button
+    
+    if (window.view.actions && window.view.actions.roll_event) {
+        action_button("roll_event", "Roll Event");
+    }
+    if (window.view.actions && window.view.actions.choose_navy) {
+        action_button("choose_navy", "German Navy");
+    }
+    if (window.view.actions && window.view.actions.choose_shipping) {
+        action_button("choose_shipping", "German Shipping");
+    }
+    if (window.view.actions && window.view.actions.roll_evacuation) {
+        action_button("roll_evacuation", "Roll Evacuation");
     }
 }
 
@@ -59,8 +65,12 @@ function render_map_spaces() {
             let el = document.createElement("div");
             el.className = "space-hitbox";
             
-            // Highlight Valid Moves (Green)
-            if (window.view.actions && window.view.actions.place && window.view.actions.place.includes(space.id)) {
+            // Highlight logic
+            let isAction = false;
+            if (window.view.actions && window.view.actions.place && window.view.actions.place.includes(space.id)) isAction = true;
+            if (window.view.actions && window.view.actions.set_stance && window.view.actions.set_stance.includes(space.id)) isAction = true;
+
+            if (isAction) {
                 el.classList.add("action");
                 el.style.backgroundColor = "rgba(0, 255, 0, 0.2)"; 
                 el.style.border = "2px solid lime";
@@ -101,16 +111,13 @@ function render_units() {
             el.id = u.id;
             el.className = `unit ${u.side} ${u.class}`;
             
-            if (selectedUnitId === u.id) el.classList.add("selected");
+            if (window.view.selected === u.id) el.classList.add("selected");
 
-            // HIGHLIGHT SELECTABLE UNITS IN RESERVE
             if (window.view.actions && window.view.actions.select && window.view.actions.select.includes(u.id)) {
                 el.classList.add("action");
                 el.style.cursor = "pointer";
             }
 
-            // CLICK LISTENER: ADDED TO ALL UNITS (Even Forts!)
-            // This allows clicking a Fort to stack a unit on top of it.
             el.addEventListener("click", (e) => {
                 e.stopPropagation();
                 on_unit_click(u.id);
@@ -134,9 +141,11 @@ function render_units() {
                     el.classList.add("on-map");
                     let count = mapStackCounts[currentSpace] || 0;
                     mapStackCounts[currentSpace] = count + 1;
+                    
                     el.style.left = (space.x + (count * 5)) + "px";
                     el.style.top = (space.y + (count * 5)) + "px";
                     el.style.zIndex = 100 + count;
+                    
                     map.appendChild(el);
                 }
             } else {
@@ -153,10 +162,12 @@ function render_units() {
                     targetBox.appendChild(stackEl);
                     reserveStacks[stackKey] = { element: stackEl, count: 0 };
                 }
+
                 let stack = reserveStacks[stackKey];
                 el.style.top = (stack.count * 2) + "px";
                 el.style.left = (stack.count * 2) + "px";
                 el.style.zIndex = stack.count;
+                
                 stack.element.appendChild(el);
                 stack.count++;
             }
@@ -164,29 +175,32 @@ function render_units() {
     }
 }
 
-function on_unit_click(clickedUnitId) {
-    // Case 1: I have a unit selected
-    if (selectedUnitId) {
-        // If I click myself -> Deselect
-        if (selectedUnitId === clickedUnitId) {
-            send_action('deselect');
-            return;
-        }
-        
-        // If I click another unit ON THE MAP -> Stack on it
-        if (window.view.pieces[clickedUnitId]) {
-            let targetSpace = window.view.pieces[clickedUnitId];
-            // Send 'place' action with the space ID
-            send_action('place', targetSpace);
-            return;
-        }
+function on_unit_click(unitId) {
+    if (window.view.selected === unitId) {
+        send_action('deselect');
+        return;
     }
-
-    // Case 2: I want to select this unit
-    // Let the server decide if it's valid (e.g. Forts won't be in the select list)
-    send_action('select', clickedUnitId);
+    if (window.view.pieces[unitId]) {
+        let targetSpace = window.view.pieces[unitId];
+        send_action('place', targetSpace);
+        return;
+    }
+    send_action('select', unitId);
 }
 
 function on_space_click(spaceId) {
+    if (window.view.actions && window.view.actions.set_stance && window.view.actions.set_stance.includes(spaceId)) {
+        send_action('set_stance', spaceId);
+        return;
+    }
     send_action('place', spaceId);
 }
+
+document.addEventListener("keydown", function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        if (window.view.actions && window.view.actions.undo) {
+            send_action('undo');
+            e.preventDefault();
+        }
+    }
+});
