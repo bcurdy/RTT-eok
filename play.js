@@ -1,7 +1,10 @@
 "use strict"
 
+// Global variables
 let game = null;
 let selectedUnitId = null;
+
+// --- RTT HOOKS ---
 
 function setup(state) {
     console.log("EoK: Setup received");
@@ -9,33 +12,69 @@ function setup(state) {
     render_interface();
 }
 
-window.on_update = function(state, last_event) {
+function on_update(state, last_event) {
     game = state;
+    
+    // SYNC: Trust the server's selection state
+    if (window.view && window.view.selected) {
+        selectedUnitId = window.view.selected;
+    } else {
+        selectedUnitId = null;
+    }
+
     render_interface();
-};
+}
+
+// --- RENDER LOGIC ---
 
 function render_interface() {
+    if (!window.view) return;
+
     render_map_spaces();
     render_units();
+    
+    // TOOLBAR BUTTONS
+    // We check hasOwnProperty to show the button even if value is 0 (disabled)
+    if (window.view.actions && window.view.actions.hasOwnProperty('end_setup')) {
+        action_button("end_setup", "End Setup");
+    }
+
+    if (window.view.actions && window.view.actions.hasOwnProperty('undo')) {
+        action_button("undo", "Undo");
+    }
+
+    if (window.view.actions && window.view.actions.deselect) {
+        action_button("deselect", "Cancel Selection");
+    }
 }
 
 function render_map_spaces() {
     const map = document.getElementById("map");
     if (!map || !data.spaces) return;
     
-    if (map.querySelectorAll('.space-hitbox').length === 0) {
-        data.spaces.forEach(space => {
-            if (space.x !== undefined) {
-                let el = document.createElement("div");
-                el.className = "space-hitbox";
-                el.style.left = space.x + "px";
-                el.style.top = space.y + "px";
-                el.title = `${space.name} (${space.id})`;
-                el.addEventListener("click", () => on_space_click(space.id));
-                map.appendChild(el);
+    map.querySelectorAll('.space-hitbox').forEach(e => e.remove());
+
+    data.spaces.forEach(space => {
+        if (space.x !== undefined) {
+            let el = document.createElement("div");
+            el.className = "space-hitbox";
+            
+            // Highlight Valid Moves (Green)
+            if (window.view.actions && window.view.actions.place && window.view.actions.place.includes(space.id)) {
+                el.classList.add("action");
+                el.style.backgroundColor = "rgba(0, 255, 0, 0.2)"; 
+                el.style.border = "2px solid lime";
+                el.style.cursor = "pointer";
             }
-        });
-    }
+            
+            el.style.left = space.x + "px";
+            el.style.top = space.y + "px";
+            el.title = `${space.name} (${space.id})`;
+            
+            el.addEventListener("click", () => on_space_click(space.id));
+            map.appendChild(el);
+        }
+    });
 }
 
 function render_units() {
@@ -55,23 +94,30 @@ function render_units() {
     let mapStackCounts = {};
     let reserveStacks = {};
 
-    if (data.units) {
+    if (data.units && window.view.pieces) {
         data.units.forEach(u => {
+            let currentSpace = window.view.pieces[u.id];
             let el = document.createElement("div");
             el.id = u.id;
             el.className = `unit ${u.side} ${u.class}`;
             
             if (selectedUnitId === u.id) el.classList.add("selected");
 
-            // Always bind click, even for forts (so they can be targets)
+            // HIGHLIGHT SELECTABLE UNITS IN RESERVE
+            if (window.view.actions && window.view.actions.select && window.view.actions.select.includes(u.id)) {
+                el.classList.add("action");
+                el.style.cursor = "pointer";
+            }
+
+            // CLICK LISTENER: ADDED TO ALL UNITS (Even Forts!)
+            // This allows clicking a Fort to stack a unit on top of it.
             el.addEventListener("click", (e) => {
                 e.stopPropagation();
                 on_unit_click(u.id);
             });
 
-            if (u.type !== 'chit' && u.type !== 'fort') {
+            if (u.type !== 'chit') {
                 let unitNumHtml = (u.unit !== null) ? `<div class="unit-num">${u.unit}</div>` : '';
-                
                 el.innerHTML = `
                     <div class="army">${u.army}</div>
                     ${unitNumHtml}
@@ -82,20 +128,18 @@ function render_units() {
                 el.innerHTML = `<div class="name">${u.name}</div>`;
             }
             
-            if (u.space) {
-                // ON MAP
-                const space = data.spaces.find(s => s.id === u.space);
+            if (currentSpace) {
+                const space = data.spaces.find(s => s.id === currentSpace);
                 if (space) {
                     el.classList.add("on-map");
-                    let count = mapStackCounts[u.space] || 0;
-                    mapStackCounts[u.space] = count + 1;
+                    let count = mapStackCounts[currentSpace] || 0;
+                    mapStackCounts[currentSpace] = count + 1;
                     el.style.left = (space.x + (count * 5)) + "px";
                     el.style.top = (space.y + (count * 5)) + "px";
                     el.style.zIndex = 100 + count;
                     map.appendChild(el);
                 }
             } else {
-                // IN RESERVE
                 let targetBox;
                 if (u.type === "fort") targetBox = boxes.fort;
                 else if (u.type === "chit") targetBox = boxes.chit;
@@ -109,12 +153,10 @@ function render_units() {
                     targetBox.appendChild(stackEl);
                     reserveStacks[stackKey] = { element: stackEl, count: 0 };
                 }
-
                 let stack = reserveStacks[stackKey];
                 el.style.top = (stack.count * 2) + "px";
                 el.style.left = (stack.count * 2) + "px";
                 el.style.zIndex = stack.count;
-                
                 stack.element.appendChild(el);
                 stack.count++;
             }
@@ -122,109 +164,29 @@ function render_units() {
     }
 }
 
-// --- CORE LOGIC ---
-
 function on_unit_click(clickedUnitId) {
-    const clickedUnit = data.units.find(u => u.id === clickedUnitId);
-    if (!clickedUnit) return;
-
-    // CASE 1: We already have a unit selected
+    // Case 1: I have a unit selected
     if (selectedUnitId) {
-        // If clicking the same unit, deselect
+        // If I click myself -> Deselect
         if (selectedUnitId === clickedUnitId) {
-            selectedUnitId = null;
-            render_units();
+            send_action('deselect');
             return;
         }
-
-        // If the clicked unit is ON THE MAP, treat this as a move to its space
-        if (clickedUnit.space) {
-            attempt_move_to_space(clickedUnit.space);
+        
+        // If I click another unit ON THE MAP -> Stack on it
+        if (window.view.pieces[clickedUnitId]) {
+            let targetSpace = window.view.pieces[clickedUnitId];
+            // Send 'place' action with the space ID
+            send_action('place', targetSpace);
             return;
         }
-
-        // Otherwise, change selection to the new unit (unless it's a fort/chit which can't move)
-        if (clickedUnit.type !== 'fort' && clickedUnit.type !== 'chit') {
-            selectedUnitId = clickedUnitId;
-            render_units();
-        }
-        return;
     }
 
-    // CASE 2: No unit selected yet
-    // Forts and Chits cannot be selected/moved
-    if (clickedUnit.type === 'fort' || clickedUnit.type === 'chit') {
-        return; 
-    }
-    
-    // Select the unit
-    selectedUnitId = clickedUnitId;
-    render_units();
+    // Case 2: I want to select this unit
+    // Let the server decide if it's valid (e.g. Forts won't be in the select list)
+    send_action('select', clickedUnitId);
 }
 
 function on_space_click(spaceId) {
-    if (selectedUnitId) {
-        attempt_move_to_space(spaceId);
-    }
-}
-
-function attempt_move_to_space(spaceId) {
-    const unit = data.units.find(u => u.id === selectedUnitId);
-    if (!unit) return;
-
-    const spaceNum = parseInt(spaceId);
-    const unitsInSpace = data.units.filter(u => u.space === spaceId);
-
-    // --- RULE CHECKING ---
-
-    // 1. Stacking Limit
-    // Count units, ignoring forts
-    let stackingCount = unitsInSpace.filter(u => u.type !== 'fort').length;
-    if (stackingCount >= 3) {
-        alert("Stacking limit (3 units) reached. Forts do not count.");
-        return;
-    }
-
-    // 2. German Setup Rules
-    // Allowed: 1-4, 20, 24-50
-    if (unit.side === "german") {
-        let allowed = false;
-        if (spaceNum >= 1 && spaceNum <= 4) allowed = true;
-        else if (spaceNum === 20) allowed = true;
-        else if (spaceNum >= 24 && spaceNum <= 50) allowed = true;
-
-        if (!allowed) {
-            alert("Invalid German setup location. Allowed: 1-4, 20, 24-50.");
-            return;
-        }
-    }
-
-    // 3. Soviet Setup Rules
-    // Allowed: 2-24
-    if (unit.side === "soviet") {
-        if (spaceNum < 2 || spaceNum > 24) {
-            alert("Invalid Soviet setup location. Allowed: 2-24.");
-            return;
-        }
-
-        // Check for German occupation
-        let hasGerman = unitsInSpace.some(u => u.side === "german");
-        if (hasGerman) {
-            alert("Cannot place Soviet unit in a space occupied by Germans.");
-            return;
-        }
-
-        // Check for Army Homogeneity
-        // "39th Army may not stack with units belonging to any other Russian Army"
-        let differentArmy = unitsInSpace.find(u => u.side === "soviet" && u.army !== unit.army);
-        if (differentArmy) {
-            alert(`Cannot mix armies. Space contains ${differentArmy.army}th Army.`);
-            return;
-        }
-    }
-
-    // --- EXECUTE MOVE ---
-    unit.space = spaceId;
-    selectedUnitId = null;
-    render_units();
+    send_action('place', spaceId);
 }
