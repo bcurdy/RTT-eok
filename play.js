@@ -19,38 +19,42 @@ function on_update(state, last_event) {
     render_interface();
 }
 
+// Added on_log handler (Missing in your upload)
+function on_log(text) {
+    let p = document.createElement("div");
+    p.innerHTML = text; 
+    let log = document.getElementById("log");
+    if (log) {
+        log.appendChild(p);
+        log.scrollTop = log.scrollHeight;
+    }
+}
+
 function render_interface() {
     if (!window.view) return;
 
     render_map_spaces();
     render_units();
     
-    // UPDATE SCORE
     if (window.view.cef !== undefined) {
         let el = document.getElementById("german_cef");
         if (el) el.textContent = "CEF: " + window.view.cef;
     }
 
-    // BUTTONS
-    if (window.view.actions && window.view.actions.end_setup) {
-        action_button("end_setup", "End Setup");
-    }
-    if (window.view.actions && window.view.actions.undo) {
-        action_button("undo", "Undo");
-    }
-    // REMOVED: Cancel Selection Button
-    
-    if (window.view.actions && window.view.actions.roll_event) {
-        action_button("roll_event", "Roll Event");
-    }
-    if (window.view.actions && window.view.actions.choose_navy) {
-        action_button("choose_navy", "German Navy");
-    }
-    if (window.view.actions && window.view.actions.choose_shipping) {
-        action_button("choose_shipping", "German Shipping");
-    }
-    if (window.view.actions && window.view.actions.roll_evacuation) {
-        action_button("roll_evacuation", "Roll Evacuation");
+    if (window.view.actions) {
+        if (window.view.actions.end_setup) action_button("end_setup", "End Setup");
+        if (window.view.actions.undo) action_button("undo", "Undo");
+        
+        if (window.view.actions.roll_event) action_button("roll_event", "Roll Event");
+        if (window.view.actions.choose_navy) action_button("choose_navy", "German Navy");
+        if (window.view.actions.choose_shipping) action_button("choose_shipping", "German Shipping");
+        if (window.view.actions.roll_evacuation) action_button("roll_evacuation", "Roll Evacuation");
+        
+        if (window.view.actions.end_movement) action_button("end_movement", "End Movement");
+        if (window.view.actions.stop) action_button("stop", "Stop Moving");
+
+        if (window.view.actions.eliminate) action_button("eliminate", "Eliminate Selected");
+        if (window.view.actions.end_elimination) action_button("end_elimination", "End Elimination");
     }
 }
 
@@ -65,16 +69,24 @@ function render_map_spaces() {
             let el = document.createElement("div");
             el.className = "space-hitbox";
             
-            // Highlight logic
             let isAction = false;
-            if (window.view.actions && window.view.actions.place && window.view.actions.place.includes(space.id)) isAction = true;
-            if (window.view.actions && window.view.actions.set_stance && window.view.actions.set_stance.includes(space.id)) isAction = true;
+            if (window.view.actions) {
+                if (window.view.actions.place && window.view.actions.place.includes(space.id)) isAction = true;
+                if (window.view.actions.set_stance && window.view.actions.set_stance.includes(space.id)) isAction = true;
+                if (window.view.actions.move && window.view.actions.move.includes(space.id)) isAction = true;
+            }
 
             if (isAction) {
                 el.classList.add("action");
                 el.style.backgroundColor = "rgba(0, 255, 0, 0.2)"; 
                 el.style.border = "2px solid lime";
                 el.style.cursor = "pointer";
+            }
+
+            if (window.view.overstacked && window.view.overstacked.includes(space.id)) {
+                el.style.backgroundColor = "rgba(255, 0, 0, 0.3)";
+                el.style.border = "2px solid red";
+                el.style.zIndex = 200; 
             }
             
             el.style.left = space.x + "px";
@@ -117,6 +129,9 @@ function render_units() {
                 el.classList.add("action");
                 el.style.cursor = "pointer";
             }
+            if (window.view.selected === u.id) {
+                 el.style.cursor = "pointer";
+            }
 
             el.addEventListener("click", (e) => {
                 e.stopPropagation();
@@ -125,12 +140,7 @@ function render_units() {
 
             if (u.type !== 'chit') {
                 let unitNumHtml = (u.unit !== null) ? `<div class="unit-num">${u.unit}</div>` : '';
-                el.innerHTML = `
-                    <div class="army">${u.army}</div>
-                    ${unitNumHtml}
-                    <div class="combat">${u.combat}</div>
-                    <div class="cohesion">${u.cohesion}</div>
-                `;
+                el.innerHTML = `<div class="army">${u.army}</div>${unitNumHtml}<div class="combat">${u.combat}</div><div class="cohesion">${u.cohesion}</div>`;
             } else {
                 el.innerHTML = `<div class="name">${u.name}</div>`;
             }
@@ -144,7 +154,9 @@ function render_units() {
                     
                     el.style.left = (space.x + (count * 5)) + "px";
                     el.style.top = (space.y + (count * 5)) + "px";
-                    el.style.zIndex = 100 + count;
+                    
+                    if (u.type === 'fort') el.style.zIndex = 10;
+                    else el.style.zIndex = 100 + count;
                     
                     map.appendChild(el);
                 }
@@ -154,7 +166,6 @@ function render_units() {
                 else if (u.type === "chit") targetBox = boxes.chit;
                 else if (u.side === "soviet") targetBox = boxes.soviet;
                 else targetBox = boxes.german;
-
                 let stackKey = u.class; 
                 if (!reserveStacks[stackKey]) {
                     let stackEl = document.createElement("div");
@@ -162,12 +173,10 @@ function render_units() {
                     targetBox.appendChild(stackEl);
                     reserveStacks[stackKey] = { element: stackEl, count: 0 };
                 }
-
                 let stack = reserveStacks[stackKey];
                 el.style.top = (stack.count * 2) + "px";
                 el.style.left = (stack.count * 2) + "px";
                 el.style.zIndex = stack.count;
-                
                 stack.element.appendChild(el);
                 stack.count++;
             }
@@ -177,20 +186,40 @@ function render_units() {
 
 function on_unit_click(unitId) {
     if (window.view.selected === unitId) {
-        send_action('deselect');
+        if (window.view.actions.stop) {
+             send_action('stop');
+        } else {
+             send_action('deselect');
+        }
         return;
     }
+    
     if (window.view.pieces[unitId]) {
+        if (window.view.actions.eliminate || window.view.actions.select) {
+            send_action('select', unitId);
+            return;
+        }
         let targetSpace = window.view.pieces[unitId];
-        send_action('place', targetSpace);
-        return;
+        if (window.view.actions.move && window.view.actions.move.includes(targetSpace)) {
+             send_action('move', targetSpace);
+             return;
+        }
+        if (window.view.actions.place && window.view.actions.place.includes(targetSpace)) {
+             send_action('place', targetSpace);
+             return;
+        }
     }
+    
     send_action('select', unitId);
 }
 
 function on_space_click(spaceId) {
     if (window.view.actions && window.view.actions.set_stance && window.view.actions.set_stance.includes(spaceId)) {
         send_action('set_stance', spaceId);
+        return;
+    }
+    if (window.view.actions && window.view.actions.move && window.view.actions.move.includes(spaceId)) {
+        send_action('move', spaceId);
         return;
     }
     send_action('place', spaceId);
