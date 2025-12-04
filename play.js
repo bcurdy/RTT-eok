@@ -19,28 +19,59 @@ function on_update(state, last_event) {
     render_interface();
 }
 
-// Added on_log handler (Missing in your upload)
+// GESTION DES LOGS STANDARD RTT
 function on_log(text) {
     let p = document.createElement("div");
+    
+    if (text.match(/^>>/)) {
+        text = text.substring(2);
+        p.className = "ii";
+    }
+    if (text.match(/^>/)) {
+        text = text.substring(1);
+        p.className = "i";
+    }
+
     p.innerHTML = text; 
-    let log = document.getElementById("log");
-    if (log) {
-        log.appendChild(p);
-        log.scrollTop = log.scrollHeight;
+    return p; 
+}
+
+// NETTOYAGE ROBUSTE DE LA TOOLBAR
+function clear_toolbar() {
+    const toolbar = document.getElementById("toolbar");
+    if (!toolbar) return;
+
+    // 1. On sauvegarde le menu "Tools"
+    const menu = toolbar.querySelector("details");
+
+    // 2. On vide INTÉGRALEMENT la barre d'outils
+    while (toolbar.firstChild) {
+        toolbar.removeChild(toolbar.firstChild);
+    }
+
+    // 3. On remet le menu en place
+    if (menu) {
+        toolbar.appendChild(menu);
     }
 }
 
 function render_interface() {
     if (!window.view) return;
 
+    // 1. Nettoyer l'interface
+    clear_toolbar();
+
+    // 2. Afficher la carte et les unités
     render_map_spaces();
     render_units();
     
+    // 3. Mettre à jour le statut (CEF)
     if (window.view.cef !== undefined) {
         let el = document.getElementById("german_cef");
         if (el) el.textContent = "CEF: " + window.view.cef;
     }
 
+    // 4. Générer les boutons d'action
     if (window.view.actions) {
         if (window.view.actions.end_setup) action_button("end_setup", "End Setup");
         if (window.view.actions.undo) action_button("undo", "Undo");
@@ -51,7 +82,9 @@ function render_interface() {
         if (window.view.actions.roll_evacuation) action_button("roll_evacuation", "Roll Evacuation");
         
         if (window.view.actions.end_movement) action_button("end_movement", "End Movement");
-        if (window.view.actions.stop) action_button("stop", "Stop Moving");
+        
+        // NOTE: Le bouton "Stop Moving" est supprimé ici.
+        // L'action 'stop' est gérée via le clic sur l'unité dans on_unit_click.
 
         if (window.view.actions.eliminate) action_button("eliminate", "Eliminate Selected");
         if (window.view.actions.end_elimination) action_button("end_elimination", "End Elimination");
@@ -152,8 +185,8 @@ function render_units() {
                     let count = mapStackCounts[currentSpace] || 0;
                     mapStackCounts[currentSpace] = count + 1;
                     
-                    el.style.left = (space.x + (count * 5)) + "px";
-                    el.style.top = (space.y + (count * 5)) + "px";
+                    el.style.left = (space.x + (count * 10)) + "px";
+                    el.style.top = (space.y + (count * 10)) + "px";
                     
                     if (u.type === 'fort') el.style.zIndex = 10;
                     else el.style.zIndex = 100 + count;
@@ -166,6 +199,7 @@ function render_units() {
                 else if (u.type === "chit") targetBox = boxes.chit;
                 else if (u.side === "soviet") targetBox = boxes.soviet;
                 else targetBox = boxes.german;
+                
                 let stackKey = u.class; 
                 if (!reserveStacks[stackKey]) {
                     let stackEl = document.createElement("div");
@@ -186,19 +220,25 @@ function render_units() {
 
 function on_unit_click(unitId) {
     if (window.view.selected === unitId) {
+        // Clic sur l'unité DÉJÀ sélectionnée
+        // Si l'action 'stop' est disponible (l'unité a bougé), on stoppe le mouvement.
         if (window.view.actions.stop) {
              send_action('stop');
         } else {
+             // Sinon (l'unité n'a pas encore bougé), on désélectionne simplement.
              send_action('deselect');
         }
         return;
     }
     
+    // Clic sur une AUTRE unité
     if (window.view.pieces[unitId]) {
         if (window.view.actions.eliminate || window.view.actions.select) {
             send_action('select', unitId);
             return;
         }
+        // Cas spécial : si on clique sur une unité ennemie ou amie qui est aussi une destination valide
+        // (ex: empilement ou attaque, selon les règles futures)
         let targetSpace = window.view.pieces[unitId];
         if (window.view.actions.move && window.view.actions.move.includes(targetSpace)) {
              send_action('move', targetSpace);

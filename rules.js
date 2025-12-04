@@ -6,25 +6,20 @@ exports.scenarios = [ "Standard Game" ];
 exports.roles = [ "Soviet", "German" ];
 
 // --- ADJACENCY GRAPH ---
-// FIX: Parse ALL neighbors in the array, not just the first two
 let adj = {};
 if (data.ways) {
     data.ways.forEach(row => {
-        // Convert all IDs to strings to be safe
         let source = String(row[0]);
         
         if (!adj[source]) adj[source] = [];
 
-        // Loop through all neighbors (starting at index 1)
         for (let i = 1; i < row.length; i++) {
             let target = String(row[i]);
             
-            // Add neighbor to source
             if (!adj[source].includes(target)) {
                 adj[source].push(target);
             }
             
-            // Ensure bidirectionality (safety check, though data seems complete)
             if (!adj[target]) adj[target] = [];
             if (!adj[target].includes(source)) {
                 adj[target].push(source);
@@ -77,7 +72,6 @@ function is_enemy_occupied(game, spaceId, friendlySide) {
     return false;
 }
 
-// SIMPLIFIED: Returns only adjacent spaces (Distance 1) not blocked by enemy
 function get_valid_moves(game, unitId) {
     let unit = data.units.find(u => u.id === unitId);
     let start = game.pieces[unitId];
@@ -87,7 +81,7 @@ function get_valid_moves(game, unitId) {
     let neighbors = adj[String(start)] || [];
     
     for (let next of neighbors) {
-        // Rule: Cannot enter enemy occupied points
+        // Rule: Units stop adjacent to enemies and fire from a distance.
         if (!is_enemy_occupied(game, next, unit.side)) {
             valid_destinations.push(next);
         }
@@ -102,6 +96,7 @@ function check_stacking_limits(game) {
         let s = game.pieces[uid];
         if (s && !s.startsWith("track_")) { 
             let u = data.units.find(unit => unit.id === uid);
+            // Hard limit: Forts and Chits are excluded from the count.
             if (u.type !== 'fort' && u.type !== 'chit') {
                 counts[s] = (counts[s] || 0) + 1;
             }
@@ -111,23 +106,6 @@ function check_stacking_limits(game) {
         if (counts[s] > 3) overstacked.push(s);
     }
     return overstacked;
-}
-
-function is_russian_breakthrough(game) {
-    let count = 0;
-    data.fortification_spaces.forEach(spaceId => {
-        let sid = String(spaceId);
-        for (let uid in game.pieces) {
-            if (game.pieces[uid] === sid) {
-                let unit = data.units.find(u => u.id === uid);
-                if (unit.side === "soviet") {
-                    count++;
-                    break; 
-                }
-            }
-        }
-    });
-    return count >= 6;
 }
 
 function count_chits_in_box(game, boxNamePrefix) {
@@ -210,7 +188,6 @@ exports.view = function(state, role) {
             let isSetup = state.state.startsWith("setup");
             let isMovement = state.state.startsWith("movement");
 
-            // In setup, select from reserve. In movement, select from map.
             if (state.pieces[u.id] === null && isSetup && u.side === side && u.type !== 'fort' && u.type !== 'chit') {
                 list.push(u.id);
             }
@@ -311,8 +288,6 @@ exports.view = function(state, role) {
         view.prompt = "Evacuation Phase: German to roll for CEF.";
         if (role === "German") view.actions.roll_evacuation = 1;
     }
-    
-    // --- MOVEMENT ---
     else if (state.state === "movement_german") {
         if (role === "German") {
              view.prompt = "German Movement Phase.";
@@ -330,7 +305,6 @@ exports.view = function(state, role) {
                 else view.actions.deselect = 1;
 
              } else {
-                // Select units that haven't finished moving (moved < 3)
                 let list = [];
                 data.units.forEach(u => {
                     let m = state.moved[u.id] || 0;
@@ -577,7 +551,6 @@ exports.action = function (state, role, action, args) {
         game.pieces[unitId] = dest;
         game.moved[unitId] = (game.moved[unitId] || 0) + 1;
         
-        // If max moves reached, deselect
         if (game.moved[unitId] >= 3) {
             game.selected = null;
         }
@@ -622,10 +595,18 @@ exports.action = function (state, role, action, args) {
     if (action === "end_elimination") {
         let issues = check_stacking_limits(game);
         if (issues.length > 0) throw new Error("Still overstacked.");
+        
+        // FIX: Clear undo stack before passing turn to prevent cross-turn undo
+        game.undo = [];
+
         if (game.state === "elimination_german") {
-            game.state = "movement_german"; // Return to movement to finish
-        } else {
             game.state = "movement_soviet";
+            game.active = "Soviet";
+            game.log.push("German Elimination ended. Turn passes to Soviet.");
+        } else {
+            game.state = "combat_phase";
+            game.active = "German";
+            game.log.push("Soviet Elimination ended. Combat Phase begins.");
         }
     }
 
