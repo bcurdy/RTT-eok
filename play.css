@@ -4,9 +4,15 @@ main {
     background-color: #202020;
 }
 
+header {
+    overflow: hidden;
+    /* Ensure floats are contained */
+}
+
 /* Override the engine's default tiny height */
 #pan_zoom_main {
-    min-height: 1800px !important; /* Force it to fit our content */
+    min-height: 1800px !important;
+    /* Force it to fit our content */
     display: flex;
     justify-content: center;
 }
@@ -24,14 +30,16 @@ main {
 #board_wrap {
     position: relative;
     width: 1778px;
-    height: 1378px; /* Force map height */
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    height: 1378px;
+    /* Force map height */
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
 }
 
 #map {
     width: 1778px;
     height: 1378px;
-    background-color: #444; /* Fallback */
+    background-color: #444;
+    /* Fallback */
     background-image: url("/eok/EoK_map.jpg");
     background-size: cover;
     background-repeat: no-repeat;
@@ -47,7 +55,7 @@ main {
     gap: 15px;
     justify-content: space-between;
     /* No absolute positioning! Static flow below map */
-    position: static; 
+    position: static;
 }
 
 .reserve-box {
@@ -58,8 +66,15 @@ main {
     flex-direction: column;
 }
 
-#box_soviet, #box_german { flex: 3; }
-#box_fort, #box_chit { flex: 1; }
+#box_soviet,
+#box_german {
+    flex: 3;
+}
+
+#box_fort,
+#box_chit {
+    flex: 1;
+}
 
 .box-header {
     background-color: #444;
@@ -92,37 +107,38 @@ main {
 
 /* --- UNIT VISUALS --- */
 .unit {
-    width: 80px;   
+    width: 80px;
     height: 80px;
-    
+
     background-size: contain;
     background-repeat: no-repeat;
     background-position: center;
-    
+
     font-family: "Source Sans Pro Condensed", sans-serif;
-    font-size: 15px; 
+    font-size: 15px;
     font-weight: 700;
-    
+
     color: white;
     text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000, 1px 1px 0 #000;
-    
+
     text-align: center;
     cursor: pointer;
     z-index: 100;
-    
-    position: absolute; 
-    top: 0; left: 0;
-    
+
+    position: absolute;
+    top: 0;
+    left: 0;
+
     display: flex;
     flex-direction: column;
     justify-content: space-between;
-    
+
     transition: top 0.1s, left 0.1s;
 }
 
 .unit.on-map {
     transform: translate(-50%, -50%);
-    filter: drop-shadow(2px 4px 4px rgba(0,0,0,0.6));
+    filter: drop-shadow(2px 4px 4px rgba(0, 0, 0, 0.6));
 }
 
 .unit.selected {
@@ -132,26 +148,78 @@ main {
 }
 
 /* IMAGES */
-.unit.sov_11 { background-image: url("EoK_RU_11.PNG"); }
-.unit.sov_39 { background-image: url("EoK_RU_39.PNG"); }
-.unit.sov_43 { background-image: url("EoK_RU_43.PNG"); } 
-.unit.sov_50 { background-image: url("EoK_RU_50.PNG"); } 
+.unit.sov_11 {
+    background-image: url("EoK_RU_11.PNG");
+}
 
-.unit.ger_56  { background-image: url("EoK_DE_56.PNG"); }
-.unit.ger_62  { background-image: url("EoK_DE_62.PNG"); }
-.unit.ger_69  { background-image: url("EoK_DE_69.PNG"); }
-.unit.ger_367 { background-image: url("EoK_DE_367.PNG"); }
-.unit.ger_561 { background-image: url("EoK_DE_561.PNG"); }
-.unit.ger_pz5 { background-image: url("EoK_DE_V.PNG"); }
+.unit.sov_39 {
+    background-image: url("EoK_RU_39.PNG");
+}
 
-.unit.fort { background-image: url("EoK_FORT.PNG"); }
-.unit.chit { background-image: url("EoK_CHIT.PNG"); }
+.unit.sov_43 {
+    background-image: url("EoK_RU_43.PNG");
+}
+
+.unit.sov_50 {
+    background-image: url("EoK_RU_50.PNG");
+}
+
+.unit.ger_56 {
+    background-image: url("EoK_DE_56.PNG");
+}
+
+.unit.ger_62 {
+    background-image: url("EoK_DE_62.PNG");
+}
+
+.unit.ger_69 {
+    background-image: url("EoK_DE_69.PNG");
+}
+
+.unit.ger_367 {
+    background-image: url("EoK_DE_367.PNG");
+}
+
+.unit.ger_561 {
+    background-image: url("EoK_DE_561.PNG");
+}
+
+.unit.ger_pz5 {
+    background-image: url("EoK_DE_V.PNG");
+}
+
+.unit.fort {
+    background-image: url("EoK_FORT.PNG");
+}
+
+.unit.chit {
+    background-image: url("EoK_CHIT.PNG");
+}
 
 /* NUMBERS */
-.unit .army { position: absolute; top: 6px; left: 6px; }
-.unit .unit-num { position: absolute; top: 6px; right: 6px; }
-.unit .combat { position: absolute; bottom: 6px; left: 14px; }
-.unit .cohesion { position: absolute; bottom: 6px; right: 14px; }
+.unit .army {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+}
+
+.unit .unit-num {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+}
+
+.unit .combat {
+    position: absolute;
+    bottom: 6px;
+    left: 14px;
+}
+
+.unit .cohesion {
+    position: absolute;
+    bottom: 6px;
+    right: 14px;
+}
 
 /* --- MAP HITBOXES --- */
 .space-hitbox {
@@ -162,10 +230,10 @@ main {
     transform: translate(-50%, -50%);
     z-index: 50;
     cursor: pointer;
-    
+
     /* Default: Invisible */
-    background-color: transparent; 
-    border: none; 
+    background-color: transparent;
+    border: none;
 }
 
 /* Only show when it is a valid move action (active green) */
@@ -174,6 +242,7 @@ main {
     border: 2px solid #00ff00;
     box-shadow: 0 0 10px rgba(0, 255, 0, 0.3);
 }
+
 .space-hitbox:hover {
     border: 2px solid white;
     background-color: rgba(255, 255, 255, 0.2);

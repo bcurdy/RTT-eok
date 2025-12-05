@@ -79,20 +79,10 @@ function on_log(text) {
  * This ensures we don't duplicate buttons or lose the main menu.
  */
 function clear_toolbar() {
-    const toolbar = document.getElementById("toolbar");
-    if (!toolbar) return;
-
-    // 1. Save the "Tools" menu (the cog icon)
-    const menu = toolbar.querySelector("details");
-
-    // 2. Completely empty the toolbar
-    while (toolbar.firstChild) {
-        toolbar.removeChild(toolbar.firstChild);
-    }
-
-    // 3. Restore the menu
-    if (menu) {
-        toolbar.appendChild(menu);
+    // Clear the actions container where buttons are added
+    const actions = document.getElementById("actions");
+    if (actions) {
+        actions.replaceChildren(); // Removes all children
     }
 }
 
@@ -377,3 +367,22 @@ document.addEventListener("keydown", function (e) {
         }
     }
 });
+
+// --- OVERRIDE SEND_ACTION ---
+// We override the generic client.js send_action to force an immediate re-render.
+// This makes buttons disappear instantly when clicked, providing better feedback.
+const original_send_action = window.send_action;
+window.send_action = function (verb, noun) {
+    if (typeof original_send_action === 'function') {
+        if (original_send_action(verb, noun)) {
+            // Only hide buttons immediately for specific "terminating" actions.
+            // This allows other actions (like Undo) to remain visible until the server update.
+            const terminating_actions = ['roll_event', 'roll_evacuation', 'end_elimination'];
+            if (terminating_actions.includes(verb)) {
+                render_interface();
+            }
+            return true;
+        }
+    }
+    return false;
+};

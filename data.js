@@ -227,18 +227,18 @@ data.units.push({
 });
 
 // German Combat Units
-add_unit(4, "german", "infantry", "56th Inf", 4, 3, "ger_56");
-add_unit(4, "german", "infantry", "62nd Inf", 4, 3, "ger_62");
-add_unit(4, "german", "infantry", "69th Inf", 4, 3, "ger_69");
-add_unit(4, "german", "infantry", "367th Inf", 4, 3, "ger_367");
-add_unit(4, "german", "infantry", "561st Inf", 4, 3, "ger_561");
-add_unit(3, "german", "armor", "5th Pz", 3, 2, "ger_pz5");
+add_unit(1, "german", "infantry", "56th Inf", 4, 3, "ger_56");
+add_unit(1, "german", "infantry", "62nd Inf", 4, 3, "ger_62");
+add_unit(1, "german", "infantry", "69th Inf", 4, 3, "ger_69");
+add_unit(1, "german", "infantry", "367th Inf", 4, 3, "ger_367");
+add_unit(1, "german", "infantry", "561st Inf", 4, 3, "ger_561");
+add_unit(1, "german", "armor", "5th Pz", 3, 2, "ger_pz5");
 
 // --- SOVIET FORCES ---
-add_unit(9, "soviet", "infantry", "39th Army", 4, 4, "sov_39");
-add_unit(9, "soviet", "infantry", "43rd Army", 4, 4, "sov_43");
-add_unit(9, "soviet", "infantry", "50th Army", 4, 4, "sov_50");
-add_unit(9, "soviet", "infantry", "11th Gds", 4, 4, "sov_11");
+add_unit(1, "soviet", "infantry", "39th Army", 4, 4, "sov_39");
+add_unit(1, "soviet", "infantry", "43rd Army", 4, 4, "sov_43");
+add_unit(1, "soviet", "infantry", "50th Army", 4, 4, "sov_50");
+add_unit(1, "soviet", "infantry", "11th Gds", 4, 4, "sov_11");
 
 // --- MARKERS ---
 // 7 Generic Chits for tracking various game states
