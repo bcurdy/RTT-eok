@@ -123,6 +123,9 @@ function render_interface() {
         // Evacuation Phase Actions
         if (window.view.actions.roll_evacuation) action_button("roll_evacuation", "Roll Evacuation");
 
+        // Russian Reaction Phase Actions
+        if (window.view.actions.roll_reaction) action_button("roll_reaction", "Roll Reaction");
+
         // Movement Phase Actions
         if (window.view.actions.end_movement) action_button("end_movement", "End Movement");
 
@@ -377,7 +380,7 @@ window.send_action = function (verb, noun) {
         if (original_send_action(verb, noun)) {
             // Only hide buttons immediately for specific "terminating" actions.
             // This allows other actions (like Undo) to remain visible until the server update.
-            const terminating_actions = ['roll_event', 'roll_evacuation', 'end_elimination'];
+            const terminating_actions = ['roll_event', 'roll_evacuation', 'roll_reaction', 'end_elimination'];
             if (terminating_actions.includes(verb)) {
                 render_interface();
             }

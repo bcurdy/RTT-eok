@@ -70,6 +70,10 @@ exports.setup = function (seed, scenario, options) {
         russian_halt: false, // Event flag
         major_sinking: false,// Event flag
 
+        // Russian Reaction State
+        sea_cef_this_turn: 0,
+        major_sinking_last_turn: false,
+
         // Unit State
         selected: null, // Currently selected unit ID (server-side tracking)
         pieces: {},     // Map: unitId -> spaceId (or null if off-map)
@@ -367,6 +371,10 @@ exports.view = function (state, role) {
         view.prompt = "Evacuation Phase: German to roll for CEF.";
         if (role === "German") view.actions.roll_evacuation = 1;
     }
+    else if (state.state === "russian_reaction_phase") {
+        view.prompt = "Russian Reaction Phase: Roll for Major Sinking.";
+        if (role === "Soviet") view.actions.roll_reaction = 1;
+    }
     else if (state.state === "movement_german") {
         if (role === "German") {
             view.prompt = "German Movement Phase.";
@@ -619,9 +627,16 @@ exports.action = function (state, role, action, args) {
         let mod = 0;
         mod += count_chits_in_box(game, "ger_navy");
         mod += count_chits_in_box(game, "ger_ship");
-        if (game.major_sinking) mod -= 5;
+
+        // Apply modifier from PREVIOUS turn's Major Sinking
+        if (game.major_sinking_last_turn) {
+            mod -= 5;
+            game.log.push("Modifier: -5 (Major Sinking last turn)");
+        }
+
         if (is_fully_occupied_by(game, [33, 41], "soviet")) mod -= 1;
         if (is_fully_occupied_by(game, [1, 2, 23, 24], "soviet")) mod -= 1;
+
         let final_roll = Math.max(1, die + mod);
         let sea_cef = (final_roll === 1) ? 0 : (final_roll >= 10) ? 9 : final_roll - 1;
         let msg = "";
@@ -631,6 +646,46 @@ exports.action = function (state, role, action, args) {
         }
         game.log.push(`Sea: rolled ${die} (${mod >= 0 ? '+' : ''}${mod}) = ${final_roll} -> ${sea_cef} CEF${msg}`);
         game.cef += sea_cef;
+
+        // Store for Russian Reaction
+        game.sea_cef_this_turn = sea_cef;
+
+        // Reset flags for current turn tracking
+        game.major_sinking = false;
+        game.major_sinking_last_turn = false;
+
+        if (game.sea_cef_this_turn > 0) {
+            game.state = "russian_reaction_phase";
+            game.active = "Soviet";
+        } else {
+            game.state = "movement_german";
+            game.active = "German";
+        }
+        game.undo = [];
+    }
+
+    // --- RUSSIAN REACTION PHASE ACTIONS ---
+    if (action === "roll_reaction") {
+        let die = Math.floor(Math.random() * 6) + 1;
+        game.log.push(`Russian Reaction: rolled ${die}`);
+
+        if (die === 6) {
+            game.log.push("Rolled 6: Roll again for Major Sinking.");
+            let die2 = Math.floor(Math.random() * 6) + 1;
+            let mod = count_chits_in_box(game, "ger_navy");
+            let final = die2 + mod;
+            game.log.push(`Second Roll: ${die2} + ${mod} (German Navy) = ${final}`);
+
+            if (final <= 5) {
+                game.log.push("Result: Major Sinking! (-1 Sea CEF)");
+                game.cef = Math.max(0, game.cef - 1);
+                game.major_sinking_last_turn = true;
+            } else {
+                game.log.push("Result: No Effect (6+)");
+            }
+        } else {
+            game.log.push("Result: No Effect (1-5)");
+        }
 
         game.state = "movement_german";
         game.active = "German";
