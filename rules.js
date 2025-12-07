@@ -63,6 +63,12 @@ exports.setup = function (seed, scenario, options) {
         state: "setup_german",
         turn: 1,
 
+        // Combat State
+        attacks: [],   // List of declared attacks {attacker, target, source, type}
+        battles: [],   // List of unresolved battles (grouped attacks)
+        combat_log: [],
+        combat_last_active: null, // Stores active player during defensive retreats
+
         // Game Specific State
         stance: null,        // German Stance (Land or Naval)
         cef: 0,              // Cumulative Evacuation Force (Score)
@@ -85,8 +91,101 @@ exports.setup = function (seed, scenario, options) {
         game.pieces[u.id] = u.space || null;
     });
 
+
+
     return game;
 };
+
+// Helper for Advance Logic
+function check_advance_after_combat(game, spaceId) {
+    // Check if space is vacated
+    let occupants = get_units_in_space(game, spaceId);
+    // Ignore chits/markers if any (but 'chit' is a unit type). 
+    // Advance condition: "If a point is vacated due to combat"
+    // Usually markers don't block.
+    if (occupants.some(u => u.type !== 'chit')) {
+        // Not vacated (still has units)
+        game.state = "combat_resolve";
+        game.combat_index++;
+        return;
+    }
+
+    // Vacated! Identify candidates
+    let candidates = [];
+    game.attacks.forEach(a => {
+        // If attacker targeted something in this space.
+        // We don't have the original target location stored in 'a', but we can infer from adjacency?
+        // No, target might have retreated out.
+        // But we DO know that 'a.target' was targeted.
+        // Was 'a.target' in 'spaceId'?
+        // We know the current combat just resolved involved 'target' (which was in 'spaceId' at start of roll).
+        // So any attacker who targeted a unit that WAS in this space.
+        // This effectively means: All attackers who targeted units that were in 'spaceId'.
+
+        // This is tricky because we iterate attacks linearly.
+        // Previous attacks might have been against other units in the same space.
+        // Future attacks might be against units in the same space.
+        // "all attacking units ... that targeted a unit/marker in that point"
+        // We should check ALL successful/pending attacks against this point?
+        // But some might have been resolved already.
+        // Simplified: Any unit that declared an attack against a target that is/was in this space.
+        // But we lost track of where targets were.
+
+        // BETTER APPROACH: Check adjacency of ALL attackers in 'game.attacks'.
+        // If an attacker is adjacent to 'spaceId' AND declared an attack against a unit that was in 'spaceId'.
+        // We can't know for sure where they were.
+        // BUT, advance happens immediately after combat in that square.
+        // Let's assume candidates are:
+        // 1. The unit that just attacked (if successful elimination/retreat).
+        // 2. Any other units that attacked THIS SAME target?
+        // 3. What about other units attacking other targets in the same space?
+        // "Three Russian units in adjacent point 7... decide to attack... 2 vs Fort, 2 vs Unit... Fort eliminated... Unit retreated... advance into vacated point."
+
+        // So ALL units that targeted ANY unit in the hex are eligible.
+        // Since we don't store "original target space" in game.attacks, we must rely on:
+        // "Is attacker adjacent to the vacated space?" (Yes, required for combat)
+        // "Did attacker target something?" (Yes, in game.attacks)
+        // Did attacker target something *in this space*?
+        // We can assume if attacker is adjacent, and we just vacated this space, it's likely the target space.
+        // But it could be adjacent to multiple spaces.
+
+        // To be correct, I SHOULD have stored 'targetSource' in 'game.attacks'.
+        // I will assume for now that if the attacker performed an attack on 'target.id' (current target), it's eligible.
+        // But what about other targets in the same space?
+        // Those targets are also gone (vacated).
+        // So any attacker who targeted any unit that is NOT currently on the map (eliminated) or is in the retreat destination?
+        // This is getting messy.
+
+        // FIX: I will update 'target' action to store 'targetSpace' in 'game.attacks'.
+        // I'll do this by editing the 'target' action I added earlier.
+        // Then I can use it here.
+    });
+
+    // For now, I'll use a hack: checking if attacker is adjacent to 'spaceId'.
+    // And is in 'game.attacks'.
+    // Providing this "lenient" advance logic is acceptable for now.
+
+    game.attacks.forEach(a => {
+        // Precise check using stored targetSpace
+        if (a.targetSpace === spaceId) {
+            // Check if attacker is still adjacent (didn't retreat/move)
+            let currentSource = game.pieces[a.attacker];
+            let neighbors = adj[String(spaceId)] || [];
+            if (currentSource && neighbors.includes(currentSource)) {
+                candidates.push(a.attacker);
+            }
+        }
+    });
+
+    if (candidates.length > 0) {
+        game.state = "combat_advance";
+        game.advance_space = spaceId;
+        game.advance_candidates = candidates;
+    } else {
+        game.state = "combat_resolve";
+        game.combat_index++;
+    }
+}
 
 // --- HELPER FUNCTIONS ---
 
@@ -219,6 +318,126 @@ function is_fully_occupied_by(game, spaces, side) {
     return true;
 }
 
+/**
+ * Calculates attack limits for the current turn/player.
+ * @returns {Object} { maxPoints: number, maxUnitsPerPoint: number }
+ */
+function get_combat_limits(game, side) {
+    if (side === "soviet") {
+        if (game.russian_halt) return { maxPoints: 0, maxUnitsPerPoint: 3 };
+        let chits = count_russian_activation_chits(game);
+        let points = 2; // Default (0 chits)
+        if (chits === 1) points = 4;
+        if (chits === 2) points = 6;
+        return { maxPoints: points, maxUnitsPerPoint: 3 };
+    } else {
+        // German
+        return { maxPoints: 2, maxUnitsPerPoint: 2 };
+    }
+}
+
+/**
+ * Validates if a unit can attack.
+ * Returns null if valid, or reason string if not.
+ */
+function can_unit_attack(game, unitId) {
+    let unit = data.units.find(u => u.id === unitId);
+    let spaceId = game.pieces[unitId];
+    if (!spaceId) return "Off-map";
+    if (unit.type === 'fort' || unit.type === 'chit') return "Cannot attack";
+
+    // Check if already attacking
+    if (game.attacks.some(a => a.attacker === unitId)) return "Already attacking";
+
+    // Check adjacency to enemies
+    let neighbors = adj[String(spaceId)] || [];
+    let hasEnemy = false;
+    for (let next of neighbors) {
+        if (is_enemy_occupied(game, next, unit.side)) {
+            hasEnemy = true;
+            break;
+        }
+    }
+    if (!hasEnemy) return "No adjacent enemies";
+
+    // Check Limits
+    let limits = get_combat_limits(game, unit.side);
+
+    // Count used points and units
+    let usedPoints = new Set();
+    let unitsFromSpace = 0;
+
+    game.attacks.forEach(a => {
+        let u = data.units.find(x => x.id === a.attacker);
+        if (u.side === unit.side) {
+            usedPoints.add(a.source);
+            if (a.source === spaceId) unitsFromSpace++;
+        }
+    });
+
+    if (unitsFromSpace >= limits.maxUnitsPerPoint) return "Max units from this point used";
+
+    // If this point is not yet used, check if we can add a new point
+    if (!usedPoints.has(spaceId)) {
+        if (usedPoints.size >= limits.maxPoints) return "Max attack points used";
+    }
+
+    return null;
+}
+
+
+/**
+ * Returns list of unit objects in a space.
+ */
+function get_units_in_space(game, spaceId) {
+    let list = [];
+    let sid = String(spaceId);
+    for (let uid in game.pieces) {
+        if (game.pieces[uid] === sid) {
+            let u = data.units.find(x => x.id === uid);
+            if (u) list.push(u);
+        }
+    }
+    return list;
+}
+
+/**
+ * Calculates valid retreat options.
+ * Priority: 1. Empty Spaces. 2. Non-Enemy Spaces.
+ */
+function get_retreat_options(game, unitId) {
+    let unit = data.units.find(u => u.id === unitId);
+    let spaceId = game.pieces[unitId];
+    if (!spaceId) return [];
+
+    let neighbors = adj[String(spaceId)] || [];
+    let empty = [];
+    let friendly = [];
+
+    for (let next of neighbors) {
+        // Check contents
+        let occupants = get_units_in_space(game, next);
+        if (occupants.length === 0) {
+            empty.push(next);
+        } else {
+            // Check for enemy
+            let hasEnemy = occupants.some(u => u.side !== "neutral" && u.side !== unit.side);
+            // Check if overstacked? retreat rules say "does not violate stacking limits"
+            let count = occupants.filter(u => u.type !== 'fort' && u.type !== 'chit').length;
+            if (unit.type !== 'fort' && unit.type !== 'chit') {
+                if (count >= 3) hasEnemy = true; // Treat full stack as invalid
+            }
+
+            if (!hasEnemy) {
+                friendly.push(next);
+            }
+        }
+    }
+
+    if (empty.length > 0) return empty;
+    return friendly;
+}
+
 // --- VIEW GENERATION ---
 
 /**
@@ -304,8 +523,8 @@ exports.view = function (state, role) {
         return list;
     }
 
-    // Enable Undo if history exists
-    view.actions.undo = (state.undo && state.undo.length > 0) ? 1 : 0;
+    // Enable Undo if history exists and player is active
+    view.actions.undo = (state.undo && state.undo.length > 0 && role === state.active) ? 1 : 0;
 
     // --- STATE MACHINE FOR VIEW GENERATION ---
 
@@ -465,8 +684,131 @@ exports.view = function (state, role) {
             view.prompt = `${activeRole} is eliminating units...`;
         }
     }
-    else if (state.state === "combat_phase") {
-        view.prompt = "Combat Phase (Placeholder).";
+    else if (state.state === "combat_setup") {
+        let side = state.active.toLowerCase();
+        let limits = get_combat_limits(state, side);
+
+        let usedPoints = new Set();
+        let attackCount = 0;
+        state.attacks.forEach(a => {
+            let u = data.units.find(x => x.id === a.attacker);
+            if (u.side === side) {
+                usedPoints.add(a.source);
+                attackCount++;
+            }
+        });
+
+        if (role === state.active) {
+            view.prompt = `Combat Phase: Designate Attacks. (Points: ${usedPoints.size}/${limits.maxPoints})`;
+            view.actions.end_combat_setup = 1;
+
+            if (state.selected) {
+                view.prompt = "Select target.";
+                let attacker = data.units.find(u => u.id === state.selected);
+                let source = state.pieces[state.selected];
+                let neighbors = adj[source] || [];
+                let targets = [];
+
+                // Get all valid targets in adjacent spaces
+                // Get all valid targets in adjacent spaces
+                neighbors.forEach(nid => {
+                    let unitsInSpace = get_units_in_space(state, nid);
+                    let hasEnemy = unitsInSpace.some(u => u.side !== "neutral" && u.side !== side && u.type !== 'chit');
+
+                    if (hasEnemy) {
+                        unitsInSpace.forEach(u => {
+                            if (u.side !== "neutral" && u.side !== side && u.type !== 'chit') targets.push(u.id);
+                            if (u.type === 'fort') targets.push(u.id);
+                        });
+                    } else if (unitsInSpace.length === 0) {
+                        // Target empty space
+                        targets.push(nid);
+                    }
+                });
+                view.actions.target = targets;
+                view.actions.deselect = 1;
+            } else {
+                let list = [];
+                data.units.forEach(u => {
+                    if (u.side === side && can_unit_attack(state, u.id) === null) {
+                        list.push(u.id);
+                    }
+                });
+                view.actions.select = list;
+            }
+
+            // Show declarations? They are in view.attacks (if we add it to view)
+            // But usually we want to see lines or highlights. 
+            // We can add declared attacks to view so client can draw arrows.
+            view.attacks = state.attacks;
+
+        } else {
+            view.prompt = state.active + " is designating attacks...";
+            view.attacks = state.attacks;
+        }
+    }
+
+
+    else if (state.state === "combat_resolve") {
+        if (state.combat_index < state.attacks.length) {
+            let attack = state.attacks[state.combat_index];
+            let attUnit = data.units.find(u => u.id === attack.attacker);
+            let defUnit = data.units.find(u => u.id === attack.target);
+
+            // Validate existence
+            if (state.pieces[attack.target] === null) {
+                view.prompt = `${defUnit.name} already eliminated. Attack skipped.`;
+                if (role === state.active) view.actions.next_attack = 1;
+            } else if (state.pieces[attack.target] !== state.pieces[attack.target]) { // Logic error in thought? Check if moved?
+                // Wait, we need to know where it WAS.
+                // Attack stores 'target' ID.
+                // If target moved, it's not there.
+                // "If a targeted unit has been retreated... attacking unit... may not attack anything else".
+                // So we check if target is still adjacent/in-place?
+                // Actually, if it retreated, it is likely NOT adjacent to some attackers or simply "retreated".
+                // A simple check: Is target still adjacent to attacker?
+                // Or better: Is target still in the space it was targeted in?
+                // But we didn't store original target space in Declared Attack (we stored source).
+                // We should have stored target space? Yes but we can assume if it moved it retreated.
+                // Let's just check if they are adjacent.
+                let attSpace = state.pieces[attack.attacker];
+                let defSpace = state.pieces[attack.target];
+                let neighbors = adj[attSpace] || [];
+                if (!neighbors.includes(defSpace)) {
+                    view.prompt = `${defUnit.name} retreated/moved. Attack skipped.`;
+                    if (role === state.active) view.actions.next_attack = 1;
+                } else {
+                    view.prompt = `Combat Resolution: ${attUnit.name} attacks ${defUnit.name}.`;
+                    if (role === state.active) view.actions.roll_combat = 1;
+                }
+            } else {
+                view.prompt = `Combat Resolution: ${attUnit.name} attacks ${defUnit.name}.`;
+                if (role === state.active) view.actions.roll_combat = 1;
+            }
+        } else {
+            view.prompt = "Combat finished.";
+            if (role === state.active) view.actions.end_combat = 1;
+        }
+    }
+    else if (state.state === "combat_retreat") {
+        view.prompt = `Retreat ${state.retreat_unit} to where?`;
+        if (role === state.active) {
+            view.actions.retreat = state.retreat_options;
+            view.retreat_unit = state.retreat_unit; // Export for UI highlighting
+        }
+    }
+    else if (state.state === "combat_advance") {
+        view.prompt = "Advance After Combat: Select units to advance.";
+        if (role === state.active) {
+            view.actions.done_advance = 1;
+            view.advance_space = state.advance_space; // Export for UI highlighting
+            view.actions.select = state.advance_candidates; // Allow selection of candidates
+            view.actions.select = state.advance_candidates;
+            if (state.selected) {
+                view.actions.advance_to = 1; // Enable button
+                view.actions.deselect = 1;
+            }
+        }
     }
 
     return view;
@@ -513,6 +855,7 @@ exports.action = function (state, role, action, args) {
             game.pieces = prev.pieces;
             game.stance = prev.stance;
             game.moved = prev.moved || {};
+            game.attacks = prev.attacks || [];
             game.selected = null;
         }
     }
@@ -732,9 +1075,11 @@ exports.action = function (state, role, action, args) {
             game.active = "Soviet";
             game.log.push("German Movement ended.");
         } else if (game.state === "movement_soviet") {
-            game.state = "combat_phase";
+            game.state = "combat_setup";
             game.active = "German";
-            game.log.push("Soviet Movement ended. Combat Phase.");
+            game.moved = {};
+            if (!game.attacks) game.attacks = [];
+            game.log.push("Soviet Movement ended. Combat Phase begins (German).");
         }
     }
 
@@ -759,10 +1104,236 @@ exports.action = function (state, role, action, args) {
             game.active = "Soviet";
             game.log.push("German Elimination ended. Turn passes to Soviet.");
         } else {
-            game.state = "combat_phase";
+            game.state = "combat_setup";
             game.active = "German";
-            game.log.push("Soviet Elimination ended. Combat Phase begins.");
+            game.moved = {};
+            if (!game.attacks) game.attacks = [];
+            game.log.push("Soviet Elimination ended. Combat Phase begins (German).");
         }
+    }
+
+    // --- COMBAT SETUP ACTIONS ---
+    if (action === "target") {
+        if (!game.selected) throw new Error("No attacker selected");
+        let targetId = args;
+        let attackerId = game.selected;
+        let attacker = data.units.find(u => u.id === attackerId);
+        let source = game.pieces[attackerId];
+
+        // Verify adjacency
+        let targetSpace = game.pieces[targetId]; // Works if target is unit
+        if (!targetSpace) targetSpace = targetId; // Works if target is space ID
+
+        let neighbors = adj[source] || [];
+        if (!neighbors.includes(targetSpace)) throw new Error("Target not adjacent");
+
+        push_undo(game);
+        game.attacks.push({
+            attacker: attackerId,
+            target: targetId,
+            source: source,
+            targetSpace: targetSpace // Key for accurate advance logic
+        });
+        game.selected = null;
+    }
+
+    if (action === "end_combat_setup") {
+        game.selected = null;
+        game.undo = [];
+        if (game.attacks.length === 0) {
+            game.log.push("No attacks declared.");
+            if (game.active === "Soviet") {
+                game.turn++;
+                game.active = "German";
+                game.state = "event_phase";
+                game.log.push("Turn " + (game.turn) + " begins.");
+                game.attacks = []; // Clear for next turn
+                game.moved = {};
+            } else {
+                game.active = "Soviet";
+                game.state = "combat_setup"; // Soviet Setup
+                game.attacks = [];
+                game.moved = {};
+                game.log.push("German Combat ended. Soviet Combat begins.");
+            }
+        } else {
+            game.state = "combat_resolve";
+            game.combat_index = 0; // Start with first attack
+            game.log.push("Attacks declared. Starting Resolution.");
+        }
+    }
+
+    // --- COMBAT RESOLUTION ACTIONS ---
+    if (action === "roll_combat") {
+        let attack = game.attacks[game.combat_index];
+        let attacker = data.units.find(u => u.id === attack.attacker);
+
+        // Handle Space Target (Empty Space)
+        if (data.spaces.some(s => s.id === attack.target)) {
+            // Check if space (attack.target) is empty?
+            // "You may “target” an empty point... automatically move into such an “attacked” point"
+            // We just trigger advance check on it.
+            game.log.push(`${attacker.name} attacks empty point ${attack.target}.`);
+            check_advance_after_combat(game, attack.target);
+        }
+
+        let target = data.units.find(u => u.id === attack.target);
+
+        // Check if attack is still valid (Target present in adjacent space)
+        let targetSpace = game.pieces[target.id];
+        let attackerSpace = game.pieces[attacker.id];
+        if (!targetSpace || !attackerSpace) {
+            game.log.push("Invalid attack (unit missing). Skipped.");
+            game.combat_index++;
+            return game;
+        }
+
+        // Check for Fort protection
+        // "if a unit is in a fort and the fort has not been eliminated, the Russian attack against the unit in a fort are not happening."
+        // We assume this applies to ANY attack on a unit sharing space with a Fort (unless the target IS the fort).
+        if (target.type !== 'fort') {
+            let unitsInSpace = get_units_in_space(game, targetSpace);
+            if (unitsInSpace.some(u => u.type === 'fort')) {
+                game.log.push(`Attack on ${target.name} ineffective: Protected by Fort.`);
+                game.combat_index++;
+                return game;
+            }
+        }
+
+        // Execute Attack
+        let die = Math.floor(Math.random() * 6) + 1;
+        game.log.push(`${attacker.name} attacks ${target.name}. Rolled ${die} (Combat ${attacker.combat}).`);
+
+        if (die <= attacker.combat) {
+            let defDie = Math.floor(Math.random() * 6) + 1;
+            game.log.push(`Hit! ${target.name} cohesion roll: ${defDie} (Cohesion ${target.cohesion}).`);
+
+            if (defDie <= target.cohesion) {
+                game.log.push("No Effect (Saved).");
+                game.combat_index++;
+            } else {
+                let isEliminated = (defDie >= target.cohesion + 2);
+                let isRetreat = (defDie === target.cohesion + 1);
+
+                if (target.type === 'fort' && isRetreat) {
+                    game.log.push("Fort cannot retreat. Eliminated.");
+                    isEliminated = true;
+                    isRetreat = false;
+                }
+
+                if (isEliminated) {
+                    game.log.push("Result: Eliminated.");
+                    game.pieces[target.id] = null;
+                    check_advance_after_combat(game, targetSpace);
+                } else if (isRetreat) {
+                    game.log.push("Result: Retreat.");
+                    let retreats = get_retreat_options(game, target.id);
+                    if (retreats.length === 0) {
+                        game.log.push("No retreat path. Eliminated.");
+                        game.pieces[target.id] = null;
+                        check_advance_after_combat(game, targetSpace);
+                    } else if (retreats.length === 1) {
+                        game.pieces[target.id] = retreats[0];
+                        game.log.push(`${target.name} retreats to ${retreats[0]}.`);
+                        check_advance_after_combat(game, targetSpace);
+                    } else {
+                        game.state = "combat_retreat";
+                        game.retreat_unit = target.id;
+                        game.retreat_options = retreats;
+                        game.retreat_original_space = targetSpace; // Store for advance check
+
+                        // Switch active player if defender is not active
+                        let defenderSide = (target.side === "soviet") ? "Soviet" : "German";
+                        if (game.active !== defenderSide) {
+                            game.combat_last_active = game.active;
+                            game.active = defenderSide;
+                            game.log.push(`Control passes to ${defenderSide} for retreat.`);
+                        }
+
+                        return game;
+                    }
+                }
+            }
+        } else {
+            game.log.push("Miss.");
+            game.combat_index++;
+        }
+    }
+
+    if (action === "next_attack") {
+        game.combat_index++;
+    }
+
+    if (action === "retreat") {
+        if (!game.retreat_unit) throw new Error("No retreat unit");
+        let dest = args;
+        if (!game.retreat_options.includes(dest)) throw new Error("Invalid retreat");
+
+        let unit = data.units.find(u => u.id === game.retreat_unit);
+        game.pieces[game.retreat_unit] = dest;
+        game.log.push(`${unit.name} retreats to ${dest}.`);
+
+        // Check advance
+        let originalSpace = game.retreat_original_space;
+        game.retreat_unit = null;
+        game.retreat_options = null;
+        game.retreat_original_space = null;
+
+        // Restore active player
+        if (game.combat_last_active) {
+            game.active = game.combat_last_active;
+            game.combat_last_active = null;
+        }
+
+        check_advance_after_combat(game, originalSpace);
+    }
+
+    if (action === "done_advance") {
+        game.state = "combat_resolve";
+        game.combat_index++;
+        game.advance_space = null;
+        game.advance_candidates = null;
+    }
+
+    if (action === "advance_to") {
+        if (!game.selected) throw new Error("No unit selected");
+        let unitId = game.selected;
+        if (!game.advance_candidates.includes(unitId)) throw new Error("Invalid advance unit");
+
+        game.pieces[unitId] = game.advance_space;
+        game.log.push(`${data.units.find(u => u.id === unitId).name} advances.`);
+        game.selected = null;
+        // Stay in advance state to allow more units
+    }
+
+    if (action === "end_combat") {
+        if (game.active === "Soviet") {
+            // Turn End / New Turn
+            game.turn++;
+            game.active = "German";
+            game.state = "event_phase";
+            game.log.push("Turn " + game.turn + " begins.");
+            game.attacks = [];
+            game.moved = {};
+        } else {
+            // German -> Soviet
+            if (game.russian_halt) {
+                game.log.push("Russian Halt is active. Soviet Combat skipped.");
+                game.turn++;
+                game.active = "German";
+                game.state = "event_phase";
+                game.log.push("Turn " + game.turn + " begins.");
+                game.attacks = [];
+                game.moved = {};
+            } else {
+                game.active = "Soviet";
+                game.state = "combat_setup"; // Soviet Setup
+                game.attacks = [];
+                game.moved = {};
+                game.log.push("German Combat ended. Soviet Combat begins.");
+            }
+        }
+        game.combat_index = 0;
     }
 
     return game;

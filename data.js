@@ -191,7 +191,7 @@ function add_unit(count, side, type, name, combat, cohesion, className) {
 function add_fort(spaceId) {
     data.units.push({
         id: `fort_${spaceId}`,
-        side: "neutral",
+        side: "german",
         type: "fort",
         class: "fort",
         army: "",

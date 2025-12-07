@@ -135,6 +135,16 @@ function render_interface() {
         // Elimination Phase Actions
         if (window.view.actions.eliminate) action_button("eliminate", "Eliminate Selected");
         if (window.view.actions.end_elimination) action_button("end_elimination", "End Elimination");
+
+        // Combat Phase Actions
+        if (window.view.actions.end_combat_setup) action_button("end_combat_setup", "End Attack Designations");
+        if (window.view.actions.roll_combat) action_button("roll_combat", "Roll Combat");
+        if (window.view.actions.next_attack) action_button("next_attack", "Next Attack");
+        if (window.view.actions.end_combat) action_button("end_combat", "End Combat Phase");
+
+        // Advance Actions
+        if (window.view.actions.advance_to) action_button("advance_to", "Advance Unit");
+        if (window.view.actions.done_advance) action_button("done_advance", "Done Advancing");
     }
 }
 
@@ -160,6 +170,15 @@ function render_map_spaces() {
                 if (window.view.actions.place && window.view.actions.place.includes(space.id)) isAction = true;
                 if (window.view.actions.set_stance && window.view.actions.set_stance.includes(space.id)) isAction = true;
                 if (window.view.actions.move && window.view.actions.move.includes(space.id)) isAction = true;
+                if (window.view.actions.retreat && window.view.actions.retreat.includes(space.id)) isAction = true;
+                // Highlight Advance Destination
+                if (window.view.advance_space === space.id) {
+                    isAction = true;
+                }
+                // Note: We deliberately do NOT highlight empty spaces for 'target' action 
+                // based on user feedback that they "should not" be highlighted.
+                // However, they remain clickable if the rules allow it (handled in on_space_click).
+                // If we wanted to visualize them differently, we could check window.view.actions.target here.
             }
 
             // Highlight valid action targets
@@ -168,6 +187,17 @@ function render_map_spaces() {
                 el.style.backgroundColor = "rgba(0, 255, 0, 0.2)";
                 el.style.border = "2px solid lime";
                 el.style.cursor = "pointer";
+
+                // Specific style for Advance Destination
+                if (window.view.advance_space === space.id) {
+                    el.style.backgroundColor = "rgba(255, 215, 0, 0.4)"; // Gold
+                    el.style.border = "3px dashed gold";
+                }
+                // Specific style for Retreat Destination
+                if (window.view.actions && window.view.actions.retreat && window.view.actions.retreat.includes(space.id)) {
+                    el.style.backgroundColor = "rgba(255, 0, 0, 0.2)"; // Red tint
+                    el.style.border = "2px solid red";
+                }
             }
 
             // Highlight overstacked spaces (for elimination phase)
@@ -226,8 +256,33 @@ function render_units() {
                 el.classList.add("action");
                 el.style.cursor = "pointer";
             }
+            // Highlight valid targets
+            if (window.view.actions && window.view.actions.target && window.view.actions.target.includes(u.id)) {
+                el.classList.add("action");
+                el.classList.add("target"); // Optional styling hook
+                el.style.cursor = "pointer";
+                el.style.outline = "2px solid red"; // Visual cue for enemy/target
+            }
             if (window.view.selected === u.id) {
                 el.style.cursor = "pointer";
+            }
+
+            // Check if designated attacker (Combat Setup)
+            if (window.view.attacks && window.view.attacks.some(a => a.attacker === u.id)) {
+                el.classList.add("attacker");
+                el.style.filter = "grayscale(100%) opacity(0.8)"; // Visual cue for "used"
+            }
+
+            // Check if advance candidate (Combat Advance)
+            if (window.view.actions && window.view.actions.select && window.view.actions.select.includes(u.id)) {
+                // Differentiate based on phase ideally, but 'select' is generic.
+                // However, "advance candidates" are usually the only things selectable in combat_advance.
+                // We can infer or just let 'action' class handle it, but user asked for visibility.
+                // Since we don't store phase here efficiently, we can check if 'done_advance' exists?
+                if (window.view.actions.done_advance) {
+                    el.style.boxShadow = "0 0 10px gold";
+                    el.classList.add("advance-candidate");
+                }
             }
 
             // Bind click event
@@ -315,6 +370,12 @@ function on_unit_click(unitId) {
 
     // Case 2: Clicking a DIFFERENT unit
     if (window.view.pieces[unitId]) {
+        // Target Action (Combat)
+        if (window.view.actions.target && window.view.actions.target.includes(unitId)) {
+            send_action('target', unitId);
+            return;
+        }
+
         // If we are in elimination mode or just selecting a unit to move/setup
         if (window.view.actions.eliminate || window.view.actions.select) {
             send_action('select', unitId);
@@ -356,7 +417,12 @@ function on_space_click(spaceId) {
         send_action('move', spaceId);
         return;
     }
-    // Case 3: Placing a unit during setup
+    // Case 3: Targeting an empty space (Combat)
+    if (window.view.actions && window.view.actions.target && window.view.actions.target.includes(spaceId)) {
+        send_action('target', spaceId);
+        return;
+    }
+    // Case 4: Placing a unit during setup
     send_action('place', spaceId);
 }
 
