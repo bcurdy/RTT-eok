@@ -17,6 +17,15 @@ const data = require("./data.js");
 exports.scenarios = ["Standard Game"];
 exports.roles = ["Soviet", "German"];
 
+// --- CONSTANTS FOR MORALE RULES ---
+const OUTER_FORT_POINTS = [25, 26, 27, 28, 29, 30, 31, 32];
+const INNER_FORT_POINTS = [42, 43, 44, 45, 46, 47];
+const ENHANCE_POINTS_1 = [1, 2, 3, 4, 5, 6];
+const ENHANCE_POINTS_2 = [21, 22, 23, 24];
+const SPACES_ALL = Array.from({ length: 52 }, (_, i) => i + 1); // 1-52
+const SOVIET_SETUP_POINTS = Array.from({ length: 23 }, (_, i) => i + 2); // 2-24
+const KONIGSBERG_POINTS = [48, 49, 50, 51, 52];
+
 // --- ADJACENCY GRAPH ---
 // Build a bi-directional adjacency list from the 'ways' defined in data.js.
 // This allows for O(1) lookups of neighbors for any given space.
@@ -84,6 +93,8 @@ exports.setup = function (seed, scenario, options) {
         selected: null, // Currently selected unit ID (server-side tracking)
         pieces: {},     // Map: unitId -> spaceId (or null if off-map)
         moved: {},      // Map: unitId -> movement points used this turn
+        stance_attempts: 0, // Track number of stance change attempts (max 3)
+        stance_attempt_this_turn: false, // Track if attempted this turn
     };
 
     // Initialize all units to off-map (null)
@@ -112,43 +123,6 @@ function check_advance_after_combat(game, spaceId) {
 
     // Vacated! Identify candidates
     let candidates = [];
-    game.attacks.forEach(a => {
-        // If attacker targeted something in this space.
-        // We don't have the original target location stored in 'a', but we can infer from adjacency?
-        // No, target might have retreated out.
-        // But we DO know that 'a.target' was targeted.
-        // Was 'a.target' in 'spaceId'?
-        // We know the current combat just resolved involved 'target' (which was in 'spaceId' at start of roll).
-        // So any attacker who targeted a unit that WAS in this space.
-        // This effectively means: All attackers who targeted units that were in 'spaceId'.
-
-        // This is tricky because we iterate attacks linearly.
-        // Previous attacks might have been against other units in the same space.
-        // Future attacks might be against units in the same space.
-        // "all attacking units ... that targeted a unit/marker in that point"
-        // We should check ALL successful/pending attacks against this point?
-        // But some might have been resolved already.
-        // Simplified: Any unit that declared an attack against a target that is/was in this space.
-        // But we lost track of where targets were.
-
-        // BETTER APPROACH: Check adjacency of ALL attackers in 'game.attacks'.
-        // If an attacker is adjacent to 'spaceId' AND declared an attack against a unit that was in 'spaceId'.
-        // We can't know for sure where they were.
-        // BUT, advance happens immediately after combat in that square.
-        // Let's assume candidates are:
-        // 1. The unit that just attacked (if successful elimination/retreat).
-        // 2. Any other units that attacked THIS SAME target?
-        // 3. What about other units attacking other targets in the same space?
-        // "Three Russian units in adjacent point 7... decide to attack... 2 vs Fort, 2 vs Unit... Fort eliminated... Unit retreated... advance into vacated point."
-
-        // Valid candidates are units that declared an attack against this specific space.
-        // We rely on 'targetSpace' stored in the attack record to verify this.
-    });
-
-    // For now, I'll use a hack: checking if attacker is adjacent to 'spaceId'.
-    // And is in 'game.attacks'.
-    // Providing this "lenient" advance logic is acceptable for now.
-
     game.attacks.forEach(a => {
         // Precise check using stored targetSpace
         if (a.targetSpace === spaceId) {
@@ -189,7 +163,101 @@ function is_enemy_occupied(game, spaceId, friendlySide) {
             }
         }
     }
-    return false;
+}
+
+/**
+ * Checks if a set of spaces are ALL occupied by a specific side.
+ * @param {Object} game
+ * @param {Array} spaces - List of space IDs (or numbers).
+ * @param {string} side - "german" or "soviet".
+ */
+function is_fully_occupied_by(game, spaces, side) {
+    let targetSide = side.toLowerCase();
+    for (let sp of spaces) {
+        let occupied = false;
+        let sStr = String(sp);
+        for (let uid in game.pieces) {
+            if (game.pieces[uid] === sStr) {
+                let u = data.units.find(x => x.id === uid);
+                if (u && u.side.toLowerCase() === targetSide) {
+                    occupied = true;
+                    break;
+                }
+            }
+        }
+        if (!occupied) return false;
+    }
+    return true;
+}
+
+/**
+ * Checks Russian Supply status.
+ * Returns a list of Soviet unit IDs that are OUT OF SUPPLY.
+ * 
+ * Rules:
+ * A point is out of supply if it cannot trace a supply line along a line of
+ * adjacent, empty or Russian occupied points back to any empty or Russian occupied set up point (2-24).
+ */
+function get_out_of_supply_units(game) {
+    let oos = [];
+    let soviets = data.units.filter(u => u.side === "soviet" && game.pieces[u.id]);
+
+    if (soviets.length === 0) return [];
+
+    // 1. Identify valid "source" points (Setup points 2-24 that are NOT German occupied)
+    let sources = [];
+    // Setup points are 2 to 24 inclusive.
+    for (let i = 2; i <= 24; i++) {
+        // Condition: Empty or Russian occupied.
+        // Equivalent to: NOT German occupied.
+        if (!is_enemy_occupied(game, i, "soviet")) {
+            sources.push(String(i));
+        }
+    }
+
+    if (sources.length === 0) {
+        // No valid supply sources! All Soviet units on map are OOS.
+        return soviets.map(u => u.id);
+    }
+
+    // 2. Perform BFS from sources to find all reachable points
+    let reachable = new Set(sources);
+    let queue = [...sources];
+
+    while (queue.length > 0) {
+        let current = queue.shift();
+        let neighbors = adj[current] || [];
+
+        for (let next of neighbors) {
+            if (!reachable.has(next)) {
+                // Check if traversable: "adjacent, empty or Russian occupied points"
+                // Condition: NOT German occupied.
+                if (!is_enemy_occupied(game, next, "soviet")) {
+                    reachable.add(next);
+                    queue.push(next);
+                }
+            }
+        }
+    }
+
+    // 3. Mark units NOT in reachable set
+    for (let unit of soviets) {
+        let space = game.pieces[unit.id];
+        if (!reachable.has(space)) {
+            oos.push(unit.id);
+        }
+    }
+
+    return oos;
+}
+
+function check_supply(game) {
+    let oos_ids = get_out_of_supply_units(game);
+    data.units.forEach(u => {
+        if (u.side === "soviet") {
+            u.oos = oos_ids.includes(u.id);
+        }
+    });
 }
 
 /**
@@ -202,6 +270,13 @@ function get_valid_moves(game, unitId) {
     let unit = data.units.find(u => u.id === unitId);
     let start = game.pieces[unitId];
     if (!start) return [];
+
+    // CHECK SUPPLY (Soviet Only)
+    // "these units may not be chosen to move ... as long as they are out of supply"
+    if (unit.side === "soviet") {
+        let oos_units = get_out_of_supply_units(game);
+        if (oos_units.includes(unitId)) return [];
+    }
 
     let valid_destinations = [];
     let neighbors = adj[String(start)] || [];
@@ -303,6 +378,128 @@ function is_fully_occupied_by(game, spaces, side) {
 }
 
 /**
+ * Calculates possible bonus/penalties to German cohesion.
+ * Penalties:
+ * - If >= 2 Outer Forts (25-32) are Russian occupied: -1
+ * - If >= 2 Inner Forts (42-47) are Russian occupied: Drop to 0
+ * Enhancements:
+ * - If 1-6 all German: +1
+ * - If 21-24 all German: +1
+ * (Enhancements not cumulative, max +1)
+ */
+function get_german_cohesion_modifier(game) {
+    // 1. Check Inner Forts Penalty (Absolute)
+    let innerOccupied = 0;
+    for (let p of INNER_FORT_POINTS) {
+        if (is_enemy_occupied(game, p, "german")) innerOccupied++;
+    }
+    if (innerOccupied >= 2) return "ZERO"; // Special flag
+
+    let modifier = 0;
+
+    // 2. Check Outer Forts Penalty
+    let outerOccupied = 0;
+    for (let p of OUTER_FORT_POINTS) {
+        if (is_enemy_occupied(game, p, "german")) outerOccupied++;
+    }
+    if (outerOccupied >= 2) modifier -= 1;
+
+    // 3. Check Enhancements
+    let bonus = 0;
+    if (is_fully_occupied_by(game, ENHANCE_POINTS_1, "german")) bonus = 1;
+    if (is_fully_occupied_by(game, ENHANCE_POINTS_2, "german")) bonus = 1; // Not cumulative, so just set to 1 if either met
+    // (If strict "both apply, still only +1" logic is needed, this simple IF works because we just set to 1)
+
+    modifier += bonus;
+
+    return modifier;
+}
+
+/**
+ * Calculates the effective cohesion for a unit.
+ */
+function get_effective_cohesion(game, unitId) {
+    let unit = data.units.find(u => u.id === unitId);
+    if (!unit) return 0;
+
+    // Only German units (not Forts) are affected by morale rules
+    if (unit.side !== "german" || unit.type === 'fort' || unit.type === 'chit') {
+        return unit.cohesion;
+    }
+
+    let mod = get_german_cohesion_modifier(game);
+    if (mod === "ZERO") return 0;
+
+    let effective = unit.cohesion + mod;
+    return Math.max(0, effective);
+}
+
+/**
+ * Checks Russian Supply status.
+ * Returns a list of Soviet unit IDs that are OUT OF SUPPLY.
+ * 
+ * Rules:
+ * A point is out of supply if it cannot trace a supply line along a line of
+ * adjacent, empty or Russian occupied points back to any empty or Russian occupied set up point (2-24).
+ * 
+ * Note: BFS is re-run dynamically to ensure accurate status.
+ */
+function get_out_of_supply_units(game) {
+    let oos = [];
+    let soviets = data.units.filter(u => u.side === "soviet" && game.pieces[u.id]);
+
+    if (soviets.length === 0) return [];
+
+    // 1. Identify valid "source" points (Setup points 2-24 that are NOT German occupied)
+    let sources = [];
+    for (let i = 2; i <= 24; i++) {
+        // Must be Empty or Russian Occupied.
+        // Equivalent to: NOT German occupied (and NOT Neutral/Blocked? Rules say "empty or Russian occupied").
+        // German presence blocks. Forts block? Rules say "Russian occupied points... cut off ... by Germans".
+        // Forts are German units.
+        if (!is_enemy_occupied(game, i, "soviet")) {
+            sources.push(String(i));
+        }
+    }
+
+    if (sources.length === 0) {
+        // No valid supply sources! All Soviet units on map are OOS.
+        return soviets.map(u => u.id);
+    }
+
+    // 2. Perform BFS from sources to find all reachable points
+    let reachable = new Set(sources);
+    let queue = [...sources];
+
+    while (queue.length > 0) {
+        let current = queue.shift();
+        let neighbors = adj[current] || [];
+
+        for (let next of neighbors) {
+            if (!reachable.has(next)) {
+                // Check if traversable: "adjacent, empty or Russian occupied points"
+                // So, CANNOT pass through German occupied points.
+                if (!is_enemy_occupied(game, next, "soviet")) {
+                    reachable.add(next);
+                    queue.push(next);
+                }
+            }
+        }
+    }
+
+    // 3. Check each Soviet unit
+    for (let unit of soviets) {
+        let space = game.pieces[unit.id];
+        // If the space the unit is in is NOT reachable, it's OOS.
+        if (!reachable.has(space)) {
+            oos.push(unit.id);
+        }
+    }
+
+    return oos;
+}
+
+/**
  * Calculates attack limits for the current turn/player.
  * @returns {Object} { maxPoints: number, maxUnitsPerPoint: number }
  */
@@ -332,6 +529,13 @@ function can_unit_attack(game, unitId) {
 
     // Check if already attacking
     if (game.attacks.some(a => a.attacker === unitId)) return "Already attacking";
+
+    // CHECK SUPPLY (Soviet Only)
+    // "these units may not ... attack as long as they are out of supply"
+    if (unit.side === "soviet") {
+        let oos_units = get_out_of_supply_units(game);
+        if (oos_units.includes(unitId)) return "Out of Supply";
+    }
 
     // Check adjacency to enemies
     let neighbors = adj[String(spaceId)] || [];
@@ -440,8 +644,23 @@ exports.view = function (state, role) {
         actions: {},
         selected: state.selected,
         cef: state.cef,
-        overstacked: []
+        cef: state.cef,
+        overstacked: [],
+        cohesion: {}, // Effective cohesion for units
+        out_of_supply: [] // List of OOS units
     };
+
+    // Calculate effective cohesion for all live units
+    for (let uid in state.pieces) {
+        if (state.pieces[uid]) {
+            view.cohesion[uid] = get_effective_cohesion(state, uid);
+        }
+    }
+
+    // Calculate Supply Status (Soviet)
+    if (role === "Soviet" || role === "Observer") {
+        view.out_of_supply = get_out_of_supply_units(state);
+    }
 
     // Helper: List units that haven't been placed yet
     function get_unplaced_units(side) {
@@ -774,11 +993,23 @@ exports.view = function (state, role) {
             view.actions.done_advance = 1;
             view.advance_space = state.advance_space; // Export for UI highlighting
             view.actions.select = state.advance_candidates; // Allow selection of candidates
-            view.actions.select = state.advance_candidates;
             if (state.selected) {
                 view.actions.advance_to = 1; // Enable button
                 view.actions.deselect = 1;
             }
+        }
+    }
+
+    else if (state.state === "end_of_turn") {
+        view.prompt = "End of Turn Phase.";
+        if (role === "German") {
+            view.prompt += " Attempt Stance Change or End Turn?";
+            if (state.stance_attempts < 3 && !state.stance_attempt_this_turn) {
+                view.actions.attempt_stance_change = 1;
+            }
+            view.actions.end_turn = 1;
+        } else {
+            view.prompt = "German End of Turn...";
         }
     }
 
@@ -1067,8 +1298,7 @@ exports.action = function (state, role, action, args) {
         let issues = check_stacking_limits(game);
         if (issues.length > 0) throw new Error("Still overstacked.");
 
-        // FIX: Clear undo stack before passing turn to prevent cross-turn undo
-        game.undo = [];
+        game.undo = []; // Clear undo
 
         if (game.state === "elimination_german") {
             game.state = "movement_soviet";
@@ -1175,9 +1405,10 @@ exports.action = function (state, role, action, args) {
 
         if (die <= attacker.combat) {
             let defDie = Math.floor(Math.random() * 6) + 1;
-            game.log.push(`Hit! ${target.name} cohesion roll: ${defDie} (Cohesion ${target.cohesion}).`);
+            let cohesion = get_effective_cohesion(game, target);
+            game.log.push(`Hit! ${target.name} cohesion roll: ${defDie} (Cohesion ${cohesion}).`);
 
-            if (defDie <= target.cohesion) {
+            if (defDie <= cohesion) {
                 game.log.push("No Effect (Saved).");
                 game.combat_index++;
             } else {
@@ -1277,23 +1508,20 @@ exports.action = function (state, role, action, args) {
 
     if (action === "end_combat") {
         if (game.active === "Soviet") {
-            // Turn End / New Turn
-            game.turn++;
+            // Soviet Turn Ends -> End of Turn Phase
+            check_supply(game); // Update supply before end of turn
+            game.state = "end_of_turn";
             game.active = "German";
-            game.state = "event_phase";
-            game.log.push("Turn " + game.turn + " begins.");
             game.attacks = [];
             game.moved = {};
+            game.log.push("End of Turn Phase.");
         } else {
             // German -> Soviet
             if (game.russian_halt) {
                 game.log.push("Russian Halt is active. Soviet Combat skipped.");
-                game.turn++;
+                game.state = "end_of_turn"; // Go to End of Turn
                 game.active = "German";
-                game.state = "event_phase";
-                game.log.push("Turn " + game.turn + " begins.");
-                game.attacks = [];
-                game.moved = {};
+                game.log.push("End of Turn Phase.");
             } else {
                 game.active = "Soviet";
                 game.state = "combat_setup"; // Soviet Setup
@@ -1303,6 +1531,54 @@ exports.action = function (state, role, action, args) {
             }
         }
         game.combat_index = 0;
+    }
+
+    // --- END OF TURN ACTIONS ---
+    if (action === "attempt_stance_change") {
+        if (game.stance_attempts >= 3) throw new Error("Max attempts reached");
+        if (game.stance_attempt_this_turn) throw new Error("Already attempted this turn");
+
+        game.stance_attempts++;
+        game.stance_attempt_this_turn = true;
+        let die = Math.floor(Math.random() * 6) + 1;
+        game.log.push(`Stance Change Attempt (${game.stance_attempts}/3): Rolled ${die}.`);
+
+        if (die <= 5) {
+            let newStance = (game.stance === "Land") ? "Naval" : "Land";
+            game.stance = newStance;
+            // Update marker position
+            let target = (newStance === "Land") ? "track_land" : "track_naval";
+            game.pieces["marker_stance"] = target;
+            game.log.push(`Success! Stance changed to ${newStance}.`);
+        } else {
+            game.log.push("Failure (Rolled 6). Stance remains unchanged.");
+        }
+    }
+
+    if (action === "end_turn") {
+        // CHECK GAME OVER
+        // If Russian units occupy any two (or more) Königsberg points (48-52).
+        let occupiedCount = 0;
+        for (let p of KONIGSBERG_POINTS) {
+            if (is_fully_occupied_by(game, [p], "soviet")) {
+                occupiedCount++;
+            }
+        }
+
+        if (occupiedCount >= 2) {
+            game.state = "game_over";
+            game.result = "Russian Victory (Konigsberg Occupied)";
+            game.log.push("GAME OVER: Russian Victory!");
+        } else {
+            // New Turn
+            game.turn++;
+            game.active = "German";
+            game.state = "event_phase";
+            game.stance_attempt_this_turn = false; // Reset for new turn
+            game.log.push(`Turn ${game.turn} begins.`);
+            game.attacks = [];
+            game.moved = {};
+        }
     }
 
     return game;

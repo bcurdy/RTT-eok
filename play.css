@@ -248,7 +248,28 @@ header {
     background-color: rgba(255, 255, 255, 0.2);
 }
 
-/* Hide unit number for forts if it exists */
 .unit.fort .unit-num {
     display: none;
+}
+
+/* OOS Styling (Added for Russian Supply Rule) */
+.unit.oos {
+    opacity: 0.6;
+    filter: grayscale(80%) drop-shadow(0 0 2px red);
+}
+
+.unit.oos::after {
+    content: "OOS";
+    position: absolute;
+    top: 5px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #a00;
+    color: white;
+    font-size: 10px;
+    padding: 1px 4px;
+    border-radius: 3px;
+    white-space: nowrap;
+    z-index: 120;
+    box-shadow: 0 0 2px black;
 }

@@ -145,6 +145,10 @@ function render_interface() {
         // Advance Actions
         if (window.view.actions.advance_to) action_button("advance_to", "Advance Unit");
         if (window.view.actions.done_advance) action_button("done_advance", "Done Advancing");
+
+        // End of Turn Actions
+        if (window.view.actions.attempt_stance_change) action_button("attempt_stance_change", "Attempt Stance Change");
+        if (window.view.actions.end_turn) action_button("end_turn", "End Turn");
     }
 }
 
@@ -248,6 +252,12 @@ function render_units() {
             // Highlight selected unit
             if (window.view.selected === u.id) el.classList.add("selected");
 
+            // Highlight OOS unit
+            if (window.view.out_of_supply && window.view.out_of_supply.includes(u.id)) {
+                el.classList.add("oos");
+                el.title += " (Out of Supply)";
+            }
+
             // Highlight selectable units (for 'select' action)
             if (window.view.actions && window.view.actions.select && window.view.actions.select.includes(u.id)) {
                 el.classList.add("action");
@@ -288,7 +298,8 @@ function render_units() {
             if (u.type !== 'chit') {
                 // Combat units: Army, Unit ID (if any), Combat, Cohesion
                 let unitNumHtml = (u.unit !== null) ? `<div class="unit-num">${u.unit}</div>` : '';
-                el.innerHTML = `<div class="army">${u.army}</div>${unitNumHtml}<div class="combat">${u.combat}</div><div class="cohesion">${u.cohesion}</div>`;
+                let effCohesion = (window.view.cohesion && window.view.cohesion[u.id] !== undefined) ? window.view.cohesion[u.id] : u.cohesion;
+                el.innerHTML = `<div class="army">${u.army}</div>${unitNumHtml}<div class="combat">${u.combat}</div><div class="cohesion">${effCohesion}</div>`;
             } else {
                 // Chits/Markers: Name only
                 el.innerHTML = `<div class="name">${u.name}</div>`;
