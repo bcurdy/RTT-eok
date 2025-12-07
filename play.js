@@ -171,14 +171,11 @@ function render_map_spaces() {
                 if (window.view.actions.set_stance && window.view.actions.set_stance.includes(space.id)) isAction = true;
                 if (window.view.actions.move && window.view.actions.move.includes(space.id)) isAction = true;
                 if (window.view.actions.retreat && window.view.actions.retreat.includes(space.id)) isAction = true;
-                // Highlight Advance Destination
+                // Advance Destination
                 if (window.view.advance_space === space.id) {
                     isAction = true;
                 }
-                // Note: We deliberately do NOT highlight empty spaces for 'target' action 
-                // based on user feedback that they "should not" be highlighted.
-                // However, they remain clickable if the rules allow it (handled in on_space_click).
-                // If we wanted to visualize them differently, we could check window.view.actions.target here.
+                // Note: Empty spaces targeted for attack are not highlighted here to reduce clutter.
             }
 
             // Highlight valid action targets
@@ -273,12 +270,8 @@ function render_units() {
                 el.style.filter = "grayscale(100%) opacity(0.8)"; // Visual cue for "used"
             }
 
-            // Check if advance candidate (Combat Advance)
+            // Advance Candidates (eligible to advance after combat)
             if (window.view.actions && window.view.actions.select && window.view.actions.select.includes(u.id)) {
-                // Differentiate based on phase ideally, but 'select' is generic.
-                // However, "advance candidates" are usually the only things selectable in combat_advance.
-                // We can infer or just let 'action' class handle it, but user asked for visibility.
-                // Since we don't store phase here efficiently, we can check if 'done_advance' exists?
                 if (window.view.actions.done_advance) {
                     el.style.boxShadow = "0 0 10px gold";
                     el.classList.add("advance-candidate");

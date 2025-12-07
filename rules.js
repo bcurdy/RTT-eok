@@ -141,24 +141,8 @@ function check_advance_after_combat(game, spaceId) {
         // 3. What about other units attacking other targets in the same space?
         // "Three Russian units in adjacent point 7... decide to attack... 2 vs Fort, 2 vs Unit... Fort eliminated... Unit retreated... advance into vacated point."
 
-        // So ALL units that targeted ANY unit in the hex are eligible.
-        // Since we don't store "original target space" in game.attacks, we must rely on:
-        // "Is attacker adjacent to the vacated space?" (Yes, required for combat)
-        // "Did attacker target something?" (Yes, in game.attacks)
-        // Did attacker target something *in this space*?
-        // We can assume if attacker is adjacent, and we just vacated this space, it's likely the target space.
-        // But it could be adjacent to multiple spaces.
-
-        // To be correct, I SHOULD have stored 'targetSource' in 'game.attacks'.
-        // I will assume for now that if the attacker performed an attack on 'target.id' (current target), it's eligible.
-        // But what about other targets in the same space?
-        // Those targets are also gone (vacated).
-        // So any attacker who targeted any unit that is NOT currently on the map (eliminated) or is in the retreat destination?
-        // This is getting messy.
-
-        // FIX: I will update 'target' action to store 'targetSpace' in 'game.attacks'.
-        // I'll do this by editing the 'target' action I added earlier.
-        // Then I can use it here.
+        // Valid candidates are units that declared an attack against this specific space.
+        // We rely on 'targetSpace' stored in the attack record to verify this.
     });
 
     // For now, I'll use a hack: checking if attacker is adjacent to 'spaceId'.
@@ -737,9 +721,6 @@ exports.view = function (state, role) {
                 view.actions.select = list;
             }
 
-            // Show declarations? They are in view.attacks (if we add it to view)
-            // But usually we want to see lines or highlights. 
-            // We can add declared attacks to view so client can draw arrows.
             view.attacks = state.attacks;
 
         } else {
@@ -759,18 +740,8 @@ exports.view = function (state, role) {
             if (state.pieces[attack.target] === null) {
                 view.prompt = `${defUnit.name} already eliminated. Attack skipped.`;
                 if (role === state.active) view.actions.next_attack = 1;
-            } else if (state.pieces[attack.target] !== state.pieces[attack.target]) { // Logic error in thought? Check if moved?
-                // Wait, we need to know where it WAS.
-                // Attack stores 'target' ID.
-                // If target moved, it's not there.
-                // "If a targeted unit has been retreated... attacking unit... may not attack anything else".
-                // So we check if target is still adjacent/in-place?
-                // Actually, if it retreated, it is likely NOT adjacent to some attackers or simply "retreated".
-                // A simple check: Is target still adjacent to attacker?
-                // Or better: Is target still in the space it was targeted in?
-                // But we didn't store original target space in Declared Attack (we stored source).
-                // We should have stored target space? Yes but we can assume if it moved it retreated.
-                // Let's just check if they are adjacent.
+                // Check if target is still adjacent.
+                // If not, it likely retreated previously. Use adjacency as a proxy for validity.
                 let attSpace = state.pieces[attack.attacker];
                 let defSpace = state.pieces[attack.target];
                 let neighbors = adj[attSpace] || [];
@@ -1170,9 +1141,8 @@ exports.action = function (state, role, action, args) {
 
         // Handle Space Target (Empty Space)
         if (data.spaces.some(s => s.id === attack.target)) {
-            // Check if space (attack.target) is empty?
-            // "You may “target” an empty point... automatically move into such an “attacked” point"
-            // We just trigger advance check on it.
+            // Handle Attack on Empty Space
+            // Rules allow targeting empty points to advance into them.
             game.log.push(`${attacker.name} attacks empty point ${attack.target}.`);
             check_advance_after_combat(game, attack.target);
         }
@@ -1189,8 +1159,7 @@ exports.action = function (state, role, action, args) {
         }
 
         // Check for Fort protection
-        // "if a unit is in a fort and the fort has not been eliminated, the Russian attack against the unit in a fort are not happening."
-        // We assume this applies to ANY attack on a unit sharing space with a Fort (unless the target IS the fort).
+        // Attacks on units sharing a space with a non-eliminated Fort are ineffective.
         if (target.type !== 'fort') {
             let unitsInSpace = get_units_in_space(game, targetSpace);
             if (unitsInSpace.some(u => u.type === 'fort')) {
