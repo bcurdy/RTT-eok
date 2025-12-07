@@ -40,7 +40,7 @@ header {
     height: 1378px;
     background-color: #444;
     /* Fallback */
-    background-image: url("/eok/EoK_map.jpg");
+    background-image: url("EoK_map.jpg");
     background-size: cover;
     background-repeat: no-repeat;
     position: absolute;
@@ -272,4 +272,9 @@ header {
     white-space: nowrap;
     z-index: 120;
     box-shadow: 0 0 2px black;
+}
+
+/* Fix for lateral bar log being cut off */
+#log {
+    padding-bottom: 100px;
 }

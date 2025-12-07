@@ -731,7 +731,10 @@ exports.view = function (state, role) {
 
     // --- STATE MACHINE FOR VIEW GENERATION ---
 
-    if (state.state === "setup_german") {
+    if (state.state === "game_over") {
+        view.prompt = state.victory;
+    }
+    else if (state.state === "setup_german") {
         if (role === "German") {
             if (!state.stance) {
                 view.prompt = "German Setup: Choose your Stance.";
@@ -1344,18 +1347,27 @@ exports.action = function (state, role, action, args) {
         if (game.attacks.length === 0) {
             game.log.push("No attacks declared.");
             if (game.active === "Soviet") {
-                game.turn++;
+                // Soviet Turn Ends -> End of Turn Phase
+                check_supply(game); // Update supply
+                game.state = "end_of_turn";
                 game.active = "German";
-                game.state = "event_phase";
-                game.log.push("Turn " + (game.turn) + " begins.");
-                game.attacks = []; // Clear for next turn
-                game.moved = {};
-            } else {
-                game.active = "Soviet";
-                game.state = "combat_setup"; // Soviet Setup
+                game.log.push("End of Turn Phase.");
                 game.attacks = [];
                 game.moved = {};
-                game.log.push("German Combat ended. Soviet Combat begins.");
+            } else {
+                // German -> Soviet
+                if (game.russian_halt) {
+                    game.log.push("Russian Halt is active. Soviet Combat skipped.");
+                    game.state = "end_of_turn";
+                    game.active = "German";
+                    game.log.push("End of Turn Phase.");
+                } else {
+                    game.active = "Soviet";
+                    game.state = "combat_setup"; // Soviet Setup
+                    game.log.push("German Combat ended. Soviet Combat begins.");
+                }
+                game.attacks = [];
+                game.moved = {};
             }
         } else {
             game.state = "combat_resolve";
@@ -1567,7 +1579,7 @@ exports.action = function (state, role, action, args) {
 
         if (occupiedCount >= 2) {
             game.state = "game_over";
-            game.result = "Russian Victory (Konigsberg Occupied)";
+            game.victory = "Russian Victory (Konigsberg Occupied)";
             game.log.push("GAME OVER: Russian Victory!");
         } else {
             // New Turn
